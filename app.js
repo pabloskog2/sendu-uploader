@@ -2,7 +2,7 @@ const form = document.getElementById("uploadForm");
 const status = document.getElementById("status");
 const loader = document.getElementById("loader");
 
-const ENDPOINT = "https://workflows.n8nest.cl:5678/webhook/nubox_file_creation";
+const ENDPOINT = "https://workflows.n8nest.cl/webhook/nubox_file_creation";
 
 function validarXLSX(file) {
   return file && file.name.toLowerCase().endsWith(".xlsx");
