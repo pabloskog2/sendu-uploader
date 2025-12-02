@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sendu Uploader</title>
+
+  <!-- CSS externo -->
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- JS externo -->
+  <script defer src="app.js"></script>
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="logo">Sendu</div>
+
+  <div class="menu-item active">
+    📄 Facturas
+  </div>
+
+  <div class="menu-item">
+    🔧 Próximos módulos
+  </div>
+
+  <div class="menu-item">
+    📊 Reportes (coming soon)
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+
+  <div class="card">
+    <h2>Subir Archivos</h2>
+    <p class="desc">Sube tus archivos XLSX para procesarlos.</p>
+
+    <form id="uploadForm" enctype="multipart/form-data">
+
+      <label>Archivo Clientes (XLSX):</label>
+      <input type="file" name="archivo_clientes" id="archivo_clientes" accept=".xlsx" required />
+
+      <label>Archivo Facturación (XLSX):</label>
+      <input type="file" name="archivo_facturacion" id="archivo_facturacion" accept=".xlsx" required />
+
+      <button type="submit">Procesar</button>
+    </form>
+
+    <div class="loading" id="loader"></div>
+    <p id="status"></p>
+  </div>
+
+</div>
+
+</body>
+</html>
