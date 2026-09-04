@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
 import { getDuemintClient } from "@/lib/duemint-client";
+import { decryptSecret } from "@/lib/crypto";
 
 // Trae cobros desde 6 meses atrás (para detectar vencidos impagos) hasta
 // 4 meses hacia adelante (facturas ya emitidas con vencimiento futuro).
@@ -27,7 +28,10 @@ export async function POST() {
   });
 
   try {
-    const client = getDuemintClient({ apiToken: connection.apiToken, companyId: connection.companyId });
+    const client = getDuemintClient({
+      apiToken: decryptSecret(connection.apiToken),
+      companyId: connection.companyId,
+    });
 
     const now = new Date();
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);

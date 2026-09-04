@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
 import { getSiiClient } from "@/lib/sii-client";
+import { decryptSecret } from "@/lib/crypto";
 
 // Trae compras desde 6 meses atrás (para detectar vencidas impagas) hasta
 // 4 meses hacia adelante (documentos ya emitidos con vencimiento futuro).
@@ -28,7 +29,10 @@ export async function POST() {
   });
 
   try {
-    const client = getSiiClient({ rut: connection.rut, claveTributaria: connection.claveTributaria });
+    const client = getSiiClient({
+      rut: connection.rut,
+      claveTributaria: decryptSecret(connection.claveTributaria),
+    });
 
     const now = new Date();
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);

@@ -92,28 +92,84 @@ Pendiente de confirmar: el nombre exacto del query param de paginación
 así nunca hace loop infinito). Poner `DUEMINT_MODE=live` en `.env` una vez
 confirmado.
 
-## Integración con el SII — pendiente de decisión y de implementar
+## Integración con el SII — decisión tomada: Clave Tributaria
 
-`src/lib/sii-client.ts` deja la interfaz (`SiiClient.fetchPurchaseInvoices`)
-y un cliente mock, pero **la implementación real (`SiiRcvClient`) está sin
-hacer**. A diferencia de Nubox/Duemint, el SII no tiene una API REST pública
-para terceros: lo que existe es automatizar la sesión del portal del SII
-(login con RUT + Clave Tributaria, luego navegar el Registro de Compras y
-Venta), no un cliente de API convencional. Antes de implementarlo:
+Se decidió avanzar con Clave Tributaria (RUT + contraseña del portal
+sii.cl) en vez de certificado digital, priorizando el onboarding
+self-service para vender a muchas empresas. `src/lib/sii-client.ts` deja la
+interfaz (`SiiClient.fetchPurchaseInvoices`) y un cliente mock, pero **la
+implementación real (`SiiRcvClient`) sigue sin hacer**: a diferencia de
+Nubox/Duemint, el SII no tiene una API REST pública para terceros — lo que
+existe es automatizar la sesión del portal (login + navegar el Registro de
+Compras y Venta), no un cliente de API convencional. Además, este entorno
+de desarrollo no tiene salida de red hacia sii.cl, así que no hay forma de
+observar el flujo real de login/consulta para implementarlo con certeza
+aquí — ver los TODOs en el archivo para qué se necesita (una captura HAR de
+un login manual, o acceso de red a sii.cl en un entorno de prueba) para
+terminarlo bien en vez de adivinar endpoints.
 
-- **Seguridad/legal**: esto implica guardar la Clave Tributaria de cada
-  empresa cliente — la contraseña completa de su portal tributario, no solo
-  lectura de facturas. Hay que cifrarla en reposo y probablemente pedir un
-  mandato/consentimiento explícito del cliente.
-- **Mecanismo de login**: el portal del SII puede requerir CAPTCHA o
-  verificaciones, lo que podría obligar a un navegador headless en vez de
-  un simple `fetch`.
-- **Estabilidad**: al no ser una API oficial, un cambio en el sitio del SII
-  puede romper la integración sin aviso.
+### Riesgos de usar la Clave Tributaria (y por qué "solo son GET" no los reduce)
 
-Mientras esto no esté resuelto, `SiiConnection.claveTributaria` se guarda en
-texto plano en la base de datos — **no usar con credenciales reales en
-producción** hasta cifrar ese campo.
+Es una idea razonable pensar que como el cliente solo hace lecturas
+(`GET`) filtradas por fecha, el riesgo es bajo — pero el riesgo real no
+está en qué verbo HTTP usa nuestro código una vez adentro, sino en dos
+cosas distintas:
+
+1. **Qué es lo que se guarda.** La Clave Tributaria no es una API key de
+   solo lectura — es la contraseña completa del portal tributario de la
+   empresa. Con ella se puede hacer mucho más que ver facturas: declarar,
+   ceder documentos a factoring, ver toda la situación tributaria. Si la
+   base de datos de Sendu se filtra (o alguien con acceso interno hace mal
+   uso), el radio de daño no depende de que nuestro propio cliente solo
+   lea — depende de lo que esa contraseña permite hacer en manos de quien
+   sea que la obtenga. **Mitigación implementada**: se guarda cifrada
+   (AES-256-GCM, `src/lib/crypto.ts`) y nunca se devuelve por la API a un
+   navegador, ni siquiera cifrada (`src/app/api/sii/connection/route.ts`).
+   Falta: nunca loguear el valor en texto plano en ninguna parte (logs de
+   errores, Sentry, etc.) — revisar esto al implementar `SiiRcvClient`.
+
+2. **Qué es lo que se automatiza.** El paso sensible no es "consultar
+   facturas" — es **el login automatizado en sí**, repetido para muchas
+   empresas, probablemente desde un rango de IPs fijo de infraestructura
+   de Sendu. Eso es exactamente el patrón que los sistemas anti-fraude de
+   un portal bancario/tributario están diseñados para detectar, sin
+   importar que después de loguearse solo se haga una lectura filtrada:
+   - Puede activar bloqueos temporales o solicitar verificación adicional
+     en la cuenta del **cliente real**, afectándolo a él, no solo a Sendu.
+   - Un bug que reintente logins fallidos automáticamente podría agotar
+     intentos y bloquear la cuenta — por eso `SiiRcvClient.login()` debe
+     hacer **un solo intento por sync, nunca reintentar automáticamente**
+     una falla de autenticación.
+   - No hay contrato ni SLA: el SII puede cambiar su sitio sin aviso y
+     romper la integración silenciosamente (el sync fallaría, pero vale la
+     pena alertar explícitamente en vez de solo loguearlo, para no mostrar
+     "conectado" con datos en verdad desactualizados).
+   - No existe una versión "de solo lectura" o con permisos acotados de la
+     Clave Tributaria (a diferencia de, por ejemplo, un token OAuth de
+     alcance limitado) — es todo o nada.
+   - Usar el portal de esta forma no es un canal que el SII sancione para
+     terceros; conviene tratarlo como una automatización tolerada mientras
+     funcione, no como una integración con garantías, y tener ya pensado un
+     plan B (o una vía oficial, como certificado digital, si el SII llega
+     a exigirlo o bloquearlo más adelante).
+
+3. **Consentimiento**: como esto excede lo que un proveedor de software
+   normalmente necesita (una contraseña completa, no un scope acotado),
+   cada empresa cliente debería dar un consentimiento explícito y
+   documentado de que autoriza a Sendu a usar su Clave Tributaria de esta
+   forma — no asumir que "instalar la app" ya cubre esto.
+
+**Plan operativo mínimo antes de activar `SII_MODE=live` con credenciales
+reales:**
+- Un solo intento de login por sync; sin reintentos automáticos.
+- Espaciar las sincronizaciones entre empresas (no todas al mismo tiempo)
+  para no parecer tráfico en ráfaga desde una misma IP.
+- Alertar (no solo loguear) si el sync empieza a fallar de forma amplia —
+  probable señal de que el SII cambió algo, no un caso puntual.
+- Checkbox/registro explícito de consentimiento del cliente antes de pedir
+  su Clave Tributaria.
+- Nunca imprimir la Clave Tributaria en logs, mensajes de error o
+  respuestas de API.
 
 ## Modelo de datos (multi-empresa)
 
@@ -146,18 +202,19 @@ producción** hasta cifrar ese campo.
 
 ## Pendiente / siguientes pasos sugeridos
 
-- Implementar `SiiRcvClient` (ver sección de integración SII arriba) y
-  decidir el enfoque definitivo (automatización de portal vs. certificado
-  digital + servicio de facturación electrónica).
+- Implementar `SiiRcvClient` con datos reales del flujo de login/RCV (ver
+  TODOs en `src/lib/sii-client.ts`: falta una captura HAR o acceso de red
+  a sii.cl para hacerlo sin adivinar) y aplicar el plan operativo de la
+  sección de riesgos (un solo intento de login, alertas, consentimiento).
 - Confirmar el param de paginación de Duemint y el listado completo de
   códigos de `status` con su documentación.
 - Reemplazar el datasource de Prisma por `postgresql` y desplegar en un
   proveedor administrado para producción real multi-cliente.
 - Agregar roles más granulares (hoy todo usuario nuevo es `OWNER` de su
   empresa) si se necesita separar Admin/Solo lectura.
-- Encriptar en reposo `SiiConnection.claveTributaria` y
-  `DuemintConnection.apiToken` (hoy se guardan en texto plano; usar un
-  secreto de aplicación para cifrar/descifrar antes de persistir).
+- Rotar `APP_ENCRYPTION_KEY` requiere re-cifrar `SiiConnection.claveTributaria`
+  y `DuemintConnection.apiToken` existentes (hoy no hay un script para eso;
+  agregarlo antes de rotar la clave en un entorno con datos reales).
 - **Antes de desplegar a producción**, actualizar Next.js a la versión 16
   (`npm audit` reporta varias vulnerabilidades altas en la serie 14.x/15.x
   sin parche disponible salvo saltando a 16.3.4+). Se dejó en 14.2.35 en

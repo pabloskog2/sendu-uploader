@@ -9,20 +9,36 @@
  * documentada para terceros. Lo que existe, y lo que implementaría
  * `SiiRcvClient`, es automatizar la sesión del portal del SII (login con
  * RUT + Clave Tributaria y luego consultar el RCV como lo hace el
- * navegador) — no un cliente de API convencional. Antes de implementarlo
- * en serio hay que resolver:
+ * navegador) — no un cliente de API convencional.
  *
- * - TODO: mecanismo real de login (el SII usa CAPTCHA/verificaciones en su
- *   portal; puede requerir un navegador headless en vez de fetch simple).
- *   Confirmar además si aceptan una sesión de larga duración o hay que
- *   reautenticar en cada sync.
- * - TODO: endpoint/estructura exacta del RCV de compras una vez autenticado
- *   (es el mismo mecanismo interno que usa la web del SII, no está
- *   públicamente documentado).
- * - TODO (seguridad/legal): esto implica guardar la Clave Tributaria de
- *   cada empresa cliente — cifrarla en reposo y contar con un mandato o
- *   consentimiento explícito, ya que esa clave da acceso al portal
- *   tributario completo, no solo a lectura de facturas.
+ * DECISIÓN DE PRODUCTO: se optó por avanzar igual con Clave Tributaria
+ * (en vez de certificado digital) por simplicidad de onboarding. Ver la
+ * sección "Riesgos de usar la Clave Tributaria" en el README antes de
+ * activar `SII_MODE=live` con credenciales reales — el riesgo relevante no
+ * es que las llamadas sean solo GET (filtrar por fecha no lo reduce), sino
+ * guardar la contraseña completa del portal tributario de cada cliente y
+ * automatizar logins contra un sitio que no sanciona esto oficialmente.
+ * `SiiConnection.claveTributaria` ya se guarda cifrada (ver src/lib/crypto.ts)
+ * y nunca se devuelve al frontend (ver src/app/api/sii/connection/route.ts).
+ *
+ * Por qué `SiiRcvClient` sigue sin implementación real: este entorno de
+ * desarrollo no tiene salida de red hacia sii.cl (política de la sandbox),
+ * así que no hay forma de observar ni verificar aquí el flujo real de
+ * login + consulta del RCV. Escribir los endpoints "a ciegas" produciría
+ * código que aparenta funcionar pero probablemente falla o, peor, hace
+ * intentos de login fallidos repetidos contra una cuenta real (riesgo de
+ * bloqueo). Para completarlo se necesita uno de:
+ *
+ * - TODO: una captura HAR (pestaña Network del navegador, "Guardar todo
+ *   como HAR") de un login manual real a sii.cl seguido de abrir el
+ *   Registro de Compras y Venta filtrado por fecha, o
+ * - TODO: acceso de red a sii.cl desde un entorno donde sí se pueda probar
+ *   en vivo (con una cuenta de prueba, nunca la de un cliente real).
+ *
+ * Con eso: implementar login() (manejo de cookies/sesión, un solo intento
+ * — nunca reintentar automáticamente un login fallido, ver riesgos en el
+ * README) y el parseo del RCV. Confirmar también si la sesión dura lo
+ * suficiente para no reautenticar en cada sync.
  *
  * `FchVenc` (fecha de vencimiento) en el DTE es opcional y solo se completa
  * quando la factura se emitió "a crédito" — por eso, si el documento no la
