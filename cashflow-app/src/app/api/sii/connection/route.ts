@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
-import { nuboxConnectionSchema } from "@/lib/validation";
-import { getNuboxClient } from "@/lib/nubox-client";
+import { siiConnectionSchema } from "@/lib/validation";
+import { getSiiClient } from "@/lib/sii-client";
 
 export async function GET() {
   const session = await getCurrentSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const connection = await prisma.nuboxConnection.findUnique({
+  const connection = await prisma.siiConnection.findUnique({
     where: { organizationId: session.organizationId },
   });
   return NextResponse.json(connection);
@@ -19,15 +19,15 @@ export async function PUT(req: Request) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json();
-  const parsed = nuboxConnectionSchema.safeParse(body);
+  const parsed = siiConnectionSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const client = getNuboxClient(parsed.data);
+  const client = getSiiClient(parsed.data);
   const test = await client.testConnection();
 
-  const connection = await prisma.nuboxConnection.upsert({
+  const connection = await prisma.siiConnection.upsert({
     where: { organizationId: session.organizationId },
     update: {
       ...parsed.data,

@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function SyncButton() {
+export default function SyncButton({
+  endpoint,
+  label,
+}: {
+  endpoint: string;
+  label: string;
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -12,7 +18,7 @@ export default function SyncButton() {
     setLoading(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/nubox/sync", { method: "POST" });
+      const res = await fetch(endpoint, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setMessage(`❌ ${data.error ?? "Error al sincronizar"}`);
@@ -30,7 +36,7 @@ export default function SyncButton() {
   return (
     <div className="flex items-center gap-3">
       <button onClick={handleSync} className="btn-primary" disabled={loading}>
-        {loading ? "Sincronizando..." : "🔄 Sincronizar con Nubox"}
+        {loading ? "Sincronizando..." : `🔄 ${label}`}
       </button>
       {message && <span className="text-sm text-slate-500">{message}</span>}
     </div>

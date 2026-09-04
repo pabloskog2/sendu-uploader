@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
-import { getNuboxClient } from "@/lib/nubox-client";
+import { getDuemintClient } from "@/lib/duemint-client";
 
-// Trae facturas desde 6 meses atrás (para detectar vencidas impagas) hasta
-// 4 meses hacia adelante (para capturar documentos ya emitidos con
-// vencimiento futuro, como facturas a 90 días).
+// Trae cobros desde 6 meses atrás (para detectar vencidos impagos) hasta
+// 4 meses hacia adelante (facturas ya emitidas con vencimiento futuro).
 const LOOKBACK_DAYS = 180;
 const LOOKAHEAD_DAYS = 120;
 
@@ -13,39 +12,35 @@ export async function POST() {
   const session = await getCurrentSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const connection = await prisma.nuboxConnection.findUnique({
+  const connection = await prisma.duemintConnection.findUnique({
     where: { organizationId: session.organizationId },
   });
-  if (!connection?.apiKey || !connection.companyId) {
+  if (!connection?.apiToken || !connection.companyId) {
     return NextResponse.json(
-      { error: "Primero configura la conexión con Nubox en Configuración" },
+      { error: "Primero configura la conexión con Duemint en Configuración" },
       { status: 400 }
     );
   }
 
-  const log = await prisma.nuboxSyncLog.create({
-    data: { organizationId: session.organizationId, status: "RUNNING" },
+  const log = await prisma.syncLog.create({
+    data: { organizationId: session.organizationId, source: "DUEMINT", status: "RUNNING" },
   });
 
   try {
-    const client = getNuboxClient({
-      apiKey: connection.apiKey,
-      apiSecret: connection.apiSecret,
-      companyId: connection.companyId,
-    });
+    const client = getDuemintClient({ apiToken: connection.apiToken, companyId: connection.companyId });
 
     const now = new Date();
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const to = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
 
-    const invoices = await client.fetchInvoices({ from, to });
+    const invoices = await client.fetchCollectionDocuments({ from, to });
 
     for (const inv of invoices) {
       await prisma.invoice.upsert({
         where: {
           organizationId_source_externalId: {
             organizationId: session.organizationId,
-            source: "NUBOX",
+            source: "DUEMINT",
             externalId: inv.externalId,
           },
         },
@@ -67,7 +62,7 @@ export async function POST() {
         },
         create: {
           organizationId: session.organizationId,
-          source: "NUBOX",
+          source: "DUEMINT",
           externalId: inv.externalId,
           type: inv.type,
           documentType: inv.documentType,
@@ -87,12 +82,11 @@ export async function POST() {
       });
     }
 
-    await prisma.nuboxConnection.update({
+    await prisma.duemintConnection.update({
       where: { organizationId: session.organizationId },
       data: { status: "CONNECTED", lastSyncedAt: new Date(), lastError: null },
     });
-
-    await prisma.nuboxSyncLog.update({
+    await prisma.syncLog.update({
       where: { id: log.id },
       data: { status: "SUCCESS", finishedAt: new Date(), invoicesSynced: invoices.length },
     });
@@ -101,11 +95,11 @@ export async function POST() {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
 
-    await prisma.nuboxConnection.update({
+    await prisma.duemintConnection.update({
       where: { organizationId: session.organizationId },
       data: { status: "ERROR", lastError: message },
     });
-    await prisma.nuboxSyncLog.update({
+    await prisma.syncLog.update({
       where: { id: log.id },
       data: { status: "ERROR", finishedAt: new Date(), message },
     });

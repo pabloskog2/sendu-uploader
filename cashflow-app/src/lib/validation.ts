@@ -38,10 +38,14 @@ export const estimatedSaleSchema = z.object({
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
 });
 
-export const nuboxConnectionSchema = z.object({
-  apiKey: z.string().min(1, "La API key es obligatoria"),
-  apiSecret: z.string().optional().nullable(),
-  companyId: z.string().min(1, "El ID de empresa en Nubox es obligatorio"),
+export const siiConnectionSchema = z.object({
+  rut: z.string().min(1, "El RUT es obligatorio"),
+  claveTributaria: z.string().min(1, "La Clave Tributaria es obligatoria"),
+});
+
+export const duemintConnectionSchema = z.object({
+  apiToken: z.string().min(1, "El token es obligatorio"),
+  companyId: z.string().min(1, "El companyId es obligatorio"),
 });
 
 export const orgSettingsSchema = z.object({
@@ -49,6 +53,7 @@ export const orgSettingsSchema = z.object({
   rut: z.string().optional().nullable(),
   cashBalance: z.coerce.number(),
   cashBalanceDate: z.coerce.date(),
+  defaultPurchaseTermDays: z.coerce.number().int().positive().default(30),
 });
 
 export const signupSchema = z.object({

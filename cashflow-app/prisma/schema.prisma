@@ -1,4 +1,6 @@
 // Modelo de datos multi-tenant para el flujo de caja Sendu.
+// Fuentes de facturas: SII (Registro de Compras y Venta, para egresos) y
+// Duemint (cobranza de ventas emitidas, para ingresos + estado de pago).
 // Nota: SQLite (usado en desarrollo) no soporta enums nativos de Prisma,
 // por eso los campos de "tipo fijo" son String y se validan con zod en
 // src/lib/validation.ts. Para producción, cambiar el datasource a
@@ -19,6 +21,9 @@ model Organization {
   rut             String?
   cashBalance     Float    @default(0)
   cashBalanceDate DateTime @default(now())
+  // Plazo de pago por defecto (días) para facturas de compra del SII que no
+  // traen fecha de vencimiento informada (FchVenc es un campo opcional del DTE).
+  defaultPurchaseTermDays Int @default(30)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -27,8 +32,9 @@ model Organization {
   recurringPayments RecurringPayment[]
   oneTimePayments   OneTimePayment[]
   estimatedSales    EstimatedSale[]
-  nuboxConnection   NuboxConnection?
-  nuboxSyncLogs     NuboxSyncLog[]
+  siiConnection     SiiConnection?
+  duemintConnection DuemintConnection?
+  syncLogs          SyncLog[]
 }
 
 model User {
@@ -56,11 +62,31 @@ model Membership {
   @@unique([userId, organizationId])
 }
 
-model NuboxConnection {
+// Conexión al SII (Registro de Compras y Venta) para traer las facturas de
+// compra (egresos). Se autentica con la Clave Tributaria de cada empresa,
+// no con un certificado digital: ver README para las implicancias de
+// seguridad de guardar esta credencial.
+model SiiConnection {
   id             String    @id @default(cuid())
   organizationId String    @unique
-  apiKey         String?
-  apiSecret      String?
+  rut            String?
+  claveTributaria String?
+  status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Conexión a Duemint (cobranza) para traer las facturas de venta emitidas
+// a clientes junto con su estado real de pago (Duemint entrega vencimiento
+// y fecha de pago, algo que el SII no informa).
+model DuemintConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  apiToken       String?
   companyId      String?
   status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
   lastSyncedAt   DateTime?
@@ -71,9 +97,10 @@ model NuboxConnection {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-model NuboxSyncLog {
+model SyncLog {
   id             String    @id @default(cuid())
   organizationId String
+  source         String // SII | DUEMINT
   startedAt      DateTime  @default(now())
   finishedAt     DateTime?
   status         String // RUNNING | SUCCESS | ERROR
@@ -83,12 +110,12 @@ model NuboxSyncLog {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-// Facturas de venta (ingresos) y compra (egresos), sincronizadas desde
-// Nubox (u otra fuente en el futuro) o ingresadas manualmente.
+// Facturas de venta (ingresos, vía Duemint) y de compra (egresos, vía SII),
+// o ingresadas manualmente.
 model Invoice {
   id              String    @id @default(cuid())
   organizationId  String
-  source          String    @default("NUBOX") // NUBOX | MANUAL
+  source          String    @default("MANUAL") // SII | DUEMINT | MANUAL
   externalId      String?
   type            String // SALE | PURCHASE
   documentType    String? // factura | boleta | nota_credito | nota_debito
@@ -103,7 +130,7 @@ model Invoice {
   counterpartRut  String?
   folio           String?
   currency        String    @default("CLP")
-  raw             String? // JSON crudo tal como llega de Nubox, para trazabilidad
+  raw             String? // JSON crudo tal como llega de la fuente (SII/Duemint), para trazabilidad
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

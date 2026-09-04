@@ -11,14 +11,21 @@ function formatDate(d: Date) {
   return new Date(d).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function sourceLabel(source: string) {
+  if (source === "SII") return "SII";
+  if (source === "DUEMINT") return "Duemint";
+  return "Manual";
+}
+
 export default async function FacturasPage() {
   const session = await getCurrentSession();
-  const [invoices, connection] = await Promise.all([
+  const [invoices, siiConnection, duemintConnection] = await Promise.all([
     prisma.invoice.findMany({
       where: { organizationId: session!.organizationId },
       orderBy: { dueDate: "asc" },
     }),
-    prisma.nuboxConnection.findUnique({ where: { organizationId: session!.organizationId } }),
+    prisma.siiConnection.findUnique({ where: { organizationId: session!.organizationId } }),
+    prisma.duemintConnection.findUnique({ where: { organizationId: session!.organizationId } }),
   ]);
 
   return (
@@ -27,19 +34,31 @@ export default async function FacturasPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand">Facturas</h1>
           <p className="text-sm text-slate-500">
-            Ingresos (ventas) y egresos (compras) sincronizados desde Nubox.
+            Egresos (compras) desde el SII e ingresos (ventas + estado de pago) desde Duemint.
           </p>
         </div>
-        <SyncButton />
+        <div className="flex flex-wrap gap-3">
+          <SyncButton endpoint="/api/sii/sync" label="Sincronizar SII (compras)" />
+          <SyncButton endpoint="/api/duemint/sync" label="Sincronizar Duemint (ventas)" />
+        </div>
       </div>
 
-      {!connection?.apiKey && (
+      {!siiConnection?.rut && (
         <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
-          Aún no configuras la conexión con Nubox. Ve a{" "}
+          Aún no configuras la conexión con el SII. Ve a{" "}
           <a href="/configuracion" className="underline font-medium">
             Configuración
           </a>{" "}
-          para ingresar tus credenciales.
+          para ingresar tu RUT y Clave Tributaria.
+        </div>
+      )}
+      {!duemintConnection?.apiToken && (
+        <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
+          Aún no configuras la conexión con Duemint. Ve a{" "}
+          <a href="/configuracion" className="underline font-medium">
+            Configuración
+          </a>{" "}
+          para ingresar tu token y companyId.
         </div>
       )}
 
@@ -48,6 +67,7 @@ export default async function FacturasPage() {
           <thead>
             <tr>
               <th>Tipo</th>
+              <th>Fuente</th>
               <th>Folio</th>
               <th>Contraparte</th>
               <th>Emisión</th>
@@ -62,6 +82,7 @@ export default async function FacturasPage() {
                 <td className={inv.type === "SALE" ? "text-income" : "text-expense"}>
                   {labelFor(INVOICE_TYPES, inv.type)}
                 </td>
+                <td className="text-slate-500">{sourceLabel(inv.source)}</td>
                 <td>{inv.folio ?? "-"}</td>
                 <td>{inv.counterpartName ?? "-"}</td>
                 <td>{formatDate(inv.issueDate)}</td>
@@ -72,8 +93,8 @@ export default async function FacturasPage() {
             ))}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={7} className="text-center text-slate-400 py-8">
-                  No hay facturas todavía. Presiona "Sincronizar con Nubox".
+                <td colSpan={8} className="text-center text-slate-400 py-8">
+                  No hay facturas todavía. Sincroniza con el SII y/o Duemint.
                 </td>
               </tr>
             )}
