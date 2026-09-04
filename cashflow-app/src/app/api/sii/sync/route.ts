@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
 import { getSiiClient } from "@/lib/sii-client";
 import { decryptSecret } from "@/lib/crypto";
+import { resolvePurchaseInvoice } from "@/lib/purchase-terms";
+import { normalizeRut } from "@/lib/rut";
 
 // Trae compras desde 6 meses atrás (para detectar vencidas impagas) hasta
 // 4 meses hacia adelante (documentos ya emitidos con vencimiento futuro).
@@ -38,9 +40,34 @@ export async function POST() {
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const to = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
 
-    const invoices = await client.fetchPurchaseInvoices({ from, to }, org.defaultPurchaseTermDays);
+    const [invoices, suppliers] = await Promise.all([
+      client.fetchPurchaseInvoices({ from, to }),
+      prisma.supplier.findMany({ where: { organizationId: session.organizationId } }),
+    ]);
+    const suppliersByRut = new Map(suppliers.map((s) => [normalizeRut(s.rut), s]));
 
     for (const inv of invoices) {
+      const supplier = inv.counterpartRut ? suppliersByRut.get(normalizeRut(inv.counterpartRut)) : undefined;
+      const termDays = supplier?.paymentTermDays ?? org.defaultPurchaseTermDays;
+      const resolved = resolvePurchaseInvoice(inv, termDays, now);
+
+      const data = {
+        type: inv.type,
+        documentType: inv.documentType,
+        status: resolved.status,
+        issueDate: inv.issueDate,
+        dueDate: resolved.dueDate,
+        paidDate: resolved.paidDate,
+        netAmount: inv.netAmount,
+        taxAmount: inv.taxAmount,
+        totalAmount: inv.totalAmount,
+        counterpartName: inv.counterpartName,
+        counterpartRut: inv.counterpartRut,
+        folio: inv.folio,
+        currency: inv.currency,
+        raw: JSON.stringify(inv.raw),
+      };
+
       await prisma.invoice.upsert({
         where: {
           organizationId_source_externalId: {
@@ -49,41 +76,8 @@ export async function POST() {
             externalId: inv.externalId,
           },
         },
-        update: {
-          type: inv.type,
-          documentType: inv.documentType,
-          status: inv.status,
-          issueDate: inv.issueDate,
-          dueDate: inv.dueDate,
-          paidDate: inv.paidDate,
-          netAmount: inv.netAmount,
-          taxAmount: inv.taxAmount,
-          totalAmount: inv.totalAmount,
-          counterpartName: inv.counterpartName,
-          counterpartRut: inv.counterpartRut,
-          folio: inv.folio,
-          currency: inv.currency,
-          raw: JSON.stringify(inv.raw),
-        },
-        create: {
-          organizationId: session.organizationId,
-          source: "SII",
-          externalId: inv.externalId,
-          type: inv.type,
-          documentType: inv.documentType,
-          status: inv.status,
-          issueDate: inv.issueDate,
-          dueDate: inv.dueDate,
-          paidDate: inv.paidDate,
-          netAmount: inv.netAmount,
-          taxAmount: inv.taxAmount,
-          totalAmount: inv.totalAmount,
-          counterpartName: inv.counterpartName,
-          counterpartRut: inv.counterpartRut,
-          folio: inv.folio,
-          currency: inv.currency,
-          raw: JSON.stringify(inv.raw),
-        },
+        update: data,
+        create: { organizationId: session.organizationId, source: "SII", externalId: inv.externalId, ...data },
       });
     }
 

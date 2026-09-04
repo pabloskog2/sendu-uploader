@@ -41,13 +41,24 @@ cargadas a Duemint" ni "compras con proveedores que no pasan por el SII" —
 casos borde a tener en cuenta si se generaliza a otra empresa que no use
 Duemint para cobranza.
 
-### Fecha de vencimiento en el SII
+### Fecha de vencimiento y forma de pago en compras (SII)
 
-El DTE (factura electrónica) tiene un campo opcional `FchVenc`, pero muchas
-facturas "a crédito" no lo completan, y no está garantizado que venga
-siempre. Cuando falta, `sii-client.ts` calcula un vencimiento estimado
-sumando un plazo configurable (`defaultPurchaseTermDays`, editable en
-Configuración) a la fecha de emisión.
+Confirmado revisando el detalle real del Registro de Compras y Venta: el
+SII **nunca** informa fecha de vencimiento ni si una compra es al contado
+o a crédito para ningún documento — no es un dato que falte a veces, es
+que no es información tributaria, sino un acuerdo comercial privado con
+cada proveedor.
+
+Por eso ese dato se resuelve en la app, no en `sii-client.ts` (que solo
+normaliza lo que el SII sí entrega): `src/lib/purchase-terms.ts` calcula
+el vencimiento sumando un plazo de pago a la fecha de emisión, usando —
+en este orden — el plazo configurado para ese proveedor en **Proveedores**
+(`Supplier.paymentTermDays`), o si no está configurado, el plazo por
+defecto de la empresa (`Organization.defaultPurchaseTermDays`,
+Configuración). Un plazo de **0 días se interpreta como contado**: la
+factura se marca pagada de inmediato (con `paidDate` = fecha de emisión) y
+por lo tanto no se proyecta como egreso futuro en el flujo de caja —
+exactamente el caso que había que evitar.
 
 ## Stack
 
@@ -101,12 +112,16 @@ interfaz (`SiiClient.fetchPurchaseInvoices`) y un cliente mock, pero **la
 implementación real (`SiiRcvClient`) sigue sin hacer**: a diferencia de
 Nubox/Duemint, el SII no tiene una API REST pública para terceros — lo que
 existe es automatizar la sesión del portal (login + navegar el Registro de
-Compras y Venta), no un cliente de API convencional. Además, este entorno
-de desarrollo no tiene salida de red hacia sii.cl, así que no hay forma de
-observar el flujo real de login/consulta para implementarlo con certeza
-aquí — ver los TODOs en el archivo para qué se necesita (una captura HAR de
-un login manual, o acceso de red a sii.cl en un entorno de prueba) para
-terminarlo bien en vez de adivinar endpoints.
+Compras y Venta), no un cliente de API convencional.
+
+Con una captura HAR real ya se confirmaron dos endpoints (documentados en
+detalle en `sii-client.ts`): `aaSessionService/load` (valida la sesión) y
+`consdcvinternetui/services/data/facadeService/getResumen` (trae el RCV,
+pero **agregado por tipo de documento y mes** — no factura por factura).
+Sigue faltando: el POST de login real contra `zeusr.sii.cl` (la captura
+empezó con la sesión ya iniciada) y el endpoint de detalle por documento
+individual (folio, fecha, contraparte). Sin esos dos no se puede armar el
+cliente real — mejor eso que adivinar endpoints de login/autenticación.
 
 ### Riesgos de usar la Clave Tributaria (y por qué "solo son GET" no los reduce)
 
@@ -180,6 +195,9 @@ reales:**
 - `User` + `Membership`: permite que un usuario pertenezca a una o más
   empresas, y que cada empresa venda el producto de forma independiente.
 - `Invoice`: facturas normalizadas, con `source` = `SII` | `DUEMINT` | `MANUAL`.
+- `Supplier`: proveedores con su plazo de pago real (`paymentTermDays`;
+  `null` = usar el de la organización, `0` = contado). Ver la sección de
+  vencimiento de compras arriba.
 - `RecurringPayment`, `OneTimePayment`, `EstimatedSale`: las tres fuentes de
   proyección manual.
 - `SiiConnection`, `DuemintConnection`, `SyncLog`: credenciales y auditoría

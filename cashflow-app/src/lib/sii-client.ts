@@ -5,6 +5,15 @@
  * de Compras y Venta (RCV) — las de venta (ingresos) se obtienen de Duemint
  * (duemint-client.ts), que además informa si ya se pagaron.
  *
+ * Importante: el SII (confirmado revisando el detalle real del RCV, tanto
+ * en compras como en ventas) **nunca** informa fecha de vencimiento ni
+ * forma de pago (contado/crédito) de un documento — es un acuerdo
+ * comercial con el proveedor, no un dato tributario. Por eso este cliente
+ * ni siquiera intenta leerlo: `NormalizedInvoice.dueDate` que devuelve se
+ * descarta siempre y se recalcula en `/api/sii/sync` a partir del plazo de
+ * pago del proveedor (`Supplier.paymentTermDays`) o el de la organización
+ * (`Organization.defaultPurchaseTermDays`) — ver src/lib/purchase-terms.ts.
+ *
  * A diferencia de Duemint, el SII no tiene una API REST pública y
  * documentada para terceros. Lo que existe, y lo que implementaría
  * `SiiRcvClient`, es automatizar la sesión del portal del SII (login con
@@ -21,29 +30,31 @@
  * `SiiConnection.claveTributaria` ya se guarda cifrada (ver src/lib/crypto.ts)
  * y nunca se devuelve al frontend (ver src/app/api/sii/connection/route.ts).
  *
- * Por qué `SiiRcvClient` sigue sin implementación real: este entorno de
- * desarrollo no tiene salida de red hacia sii.cl (política de la sandbox),
- * así que no hay forma de observar ni verificar aquí el flujo real de
- * login + consulta del RCV. Escribir los endpoints "a ciegas" produciría
- * código que aparenta funcionar pero probablemente falla o, peor, hace
- * intentos de login fallidos repetidos contra una cuenta real (riesgo de
- * bloqueo). Para completarlo se necesita uno de:
+ * Endpoints CONFIRMADOS con una captura HAR real (después de iniciar
+ * sesión) — quedan documentados para cuando se implemente el login:
  *
- * - TODO: una captura HAR (pestaña Network del navegador, "Guardar todo
- *   como HAR") de un login manual real a sii.cl seguido de abrir el
- *   Registro de Compras y Venta filtrado por fecha, o
- * - TODO: acceso de red a sii.cl desde un entorno donde sí se pueda probar
- *   en vivo (con una cuenta de prueba, nunca la de un cliente real).
+ * - `GET https://www4.sii.cl/common-1.0/services/aaSessionService/load`
+ *   → `{"data":{"usuario","rut","dv","contribuyente",...}}`. Sirve para
+ *   confirmar que la sesión (cookie) sigue activa.
+ * - `POST https://www4.sii.cl/consdcvinternetui/services/data/facadeService/getResumen`
+ *   con body
+ *   `{"metaData":{"namespace":"cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/getResumen","conversationId":"<id de sesión>","transactionId":"<uuid>"},"data":{"rutEmisor":"12345678","dvEmisor":"9","ptributario":"YYYYMM","estadoContab":"REGISTRO","operacion":"COMPRA"|"VENTA"}}`
+ *   → devuelve **totales agregados por tipo de documento y mes** (folio,
+ *   fecha, contraparte NO vienen acá — es un resumen, no el detalle).
  *
- * Con eso: implementar login() (manejo de cookies/sesión, un solo intento
- * — nunca reintentar automáticamente un login fallido, ver riesgos en el
- * README) y el parseo del RCV. Confirmar también si la sesión dura lo
- * suficiente para no reautenticar en cada sync.
- *
- * `FchVenc` (fecha de vencimiento) en el DTE es opcional y solo se completa
- * quando la factura se emitió "a crédito" — por eso, si el documento no la
- * trae, se calcula una estimada sumando `defaultTermDays` a la fecha de
- * emisión (configurable por organización).
+ * Lo que sigue faltando para completar `SiiRcvClient`:
+ * - TODO: el POST de login contra `zeusr.sii.cl/AUT2000/InicioAutenticacion/...`
+ *   (la captura disponible empezó con la sesión ya iniciada). Sin esto no
+ *   se puede autenticar por código.
+ * - TODO: el endpoint de detalle por documento individual (folio, fecha de
+ *   emisión, RUT de la contraparte) — `getResumen` solo trae el agregado
+ *   mensual. Se confirmó además que ni el detalle ni la descarga del RCV
+ *   traen vencimiento/forma de pago (ver arriba), así que ese detalle solo
+ *   hace falta para reconstruir documentos individuales (folio, fecha,
+ *   contraparte, monto), no para el vencimiento.
+ * - TODO (seguridad/operacional): un solo intento de login por sync, nunca
+ *   reintentar automáticamente una falla de autenticación (riesgo de
+ *   bloqueo de la cuenta real del cliente) — ver README.
  */
 
 import type { NormalizedInvoice } from "@/lib/invoice-types";
@@ -55,14 +66,17 @@ export type SiiCredentials = {
 
 export interface SiiClient {
   testConnection(): Promise<{ ok: boolean; message?: string }>;
-  fetchPurchaseInvoices(range: { from: Date; to: Date }, defaultTermDays: number): Promise<NormalizedInvoice[]>;
+  /**
+   * El `dueDate` de cada NormalizedInvoice devuelto es solo un placeholder
+   * (el SII no lo entrega) — quien llame a este método debe recalcularlo
+   * con src/lib/purchase-terms.ts antes de persistirlo.
+   */
+  fetchPurchaseInvoices(range: { from: Date; to: Date }): Promise<NormalizedInvoice[]>;
 }
 
 /**
- * TODO: implementación real. Antes de escribir código acá, definir con el
- * equipo si se aborda como automatización de portal (Clave Tributaria,
- * como se decidió) o se reconsidera certificado digital + servicio de
- * facturación electrónica, que sí tiene un contrato de API más estable.
+ * TODO: implementación real. Ver los TODOs en el docblock de este archivo
+ * para lo que falta (login y detalle por documento).
  */
 export class SiiRcvClient implements SiiClient {
   constructor(private credentials: SiiCredentials) {}
@@ -79,47 +93,39 @@ export class SiiRcvClient implements SiiClient {
   }
 }
 
-/** Cliente de demostración: compras de ejemplo, con y sin FchVenc informado. */
+/** Cliente de demostración: compras de ejemplo (sin vencimiento, como en la realidad). */
 export class MockSiiClient implements SiiClient {
   async testConnection(): Promise<{ ok: boolean; message?: string }> {
     return { ok: true, message: "Conexión simulada (SII_MODE=mock)" };
   }
 
-  async fetchPurchaseInvoices(
-    range: { from: Date; to: Date },
-    defaultTermDays: number
-  ): Promise<NormalizedInvoice[]> {
+  async fetchPurchaseInvoices(range: { from: Date; to: Date }): Promise<NormalizedInvoice[]> {
     const invoices: NormalizedInvoice[] = [];
     const oneDay = 24 * 60 * 60 * 1000;
     const totalDays = Math.max(1, Math.round((range.to.getTime() - range.from.getTime()) / oneDay));
-    const today = new Date();
 
     for (let i = 0; i <= totalDays; i += 7) {
       const issueDate = new Date(range.from.getTime() + i * oneDay);
-      // La mitad de las facturas de ejemplo no trae FchVenc (simula el caso
-      // real de documentos "a crédito" sin ese campo completado).
-      const hasVencimiento = i % 14 === 0;
-      const dueDate = hasVencimiento
-        ? new Date(issueDate.getTime() + 15 * oneDay)
-        : new Date(issueDate.getTime() + defaultTermDays * oneDay);
       const amount = 300000 + ((i * 53) % 9) * 90000;
 
       invoices.push({
         externalId: `mock-sii-purchase-${issueDate.toISOString().slice(0, 10)}`,
         type: "PURCHASE",
         documentType: "33",
-        status: dueDate < today ? "PAID" : "PENDING",
+        // Placeholder: el sync route siempre recalcula dueDate/status/paidDate
+        // reales con purchase-terms.ts, ya que el SII no informa esto.
+        status: "PENDING",
         issueDate,
-        dueDate,
-        paidDate: dueDate < today ? dueDate : null,
+        dueDate: issueDate,
+        paidDate: null,
         netAmount: Math.round(amount / 1.19),
         taxAmount: Math.round(amount - amount / 1.19),
         totalAmount: amount,
         counterpartName: `Proveedor demo ${(i % 4) + 1}`,
-        counterpartRut: "77.111.222-3",
+        counterpartRut: `7711122${(i % 4) + 1}-K`,
         folio: `${5000 + i}`,
         currency: "CLP",
-        raw: { mock: true, fchVencInformado: hasVencimiento },
+        raw: { mock: true },
       });
     }
     return invoices;

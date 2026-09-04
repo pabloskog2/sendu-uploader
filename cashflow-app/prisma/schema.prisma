@@ -21,8 +21,11 @@ model Organization {
   rut             String?
   cashBalance     Float    @default(0)
   cashBalanceDate DateTime @default(now())
-  // Plazo de pago por defecto (días) para facturas de compra del SII que no
-  // traen fecha de vencimiento informada (FchVenc es un campo opcional del DTE).
+  // Plazo de pago por defecto (días) para facturas de compra del SII, que
+  // nunca trae fecha de vencimiento (es un dato del acuerdo comercial con
+  // el proveedor, no un dato tributario). Cada Supplier puede sobreescribir
+  // este valor; 0 días = contado (se marca pagada de inmediato, sin
+  // proyectarse como egreso futuro).
   defaultPurchaseTermDays Int @default(30)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -32,6 +35,7 @@ model Organization {
   recurringPayments RecurringPayment[]
   oneTimePayments   OneTimePayment[]
   estimatedSales    EstimatedSale[]
+  suppliers         Supplier[]
   siiConnection     SiiConnection?
   duemintConnection DuemintConnection?
   syncLogs          SyncLog[]
@@ -108,6 +112,25 @@ model SyncLog {
   invoicesSynced Int       @default(0)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Proveedores conocidos, para asignar un plazo de pago real (negociado
+// bilateralmente, no un dato del SII) a sus facturas de compra.
+model Supplier {
+  id              String   @id @default(cuid())
+  organizationId  String
+  rut             String // normalizado sin puntos ni guion, ver src/lib/rut.ts
+  name            String?
+  // null = usar Organization.defaultPurchaseTermDays; 0 = contado (pagada
+  // de inmediato, no se proyecta como egreso futuro).
+  paymentTermDays Int?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, rut])
 }
 
 // Facturas de venta (ingresos, vía Duemint) y de compra (egresos, vía SII),

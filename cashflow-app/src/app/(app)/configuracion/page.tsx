@@ -171,17 +171,22 @@ export default function ConfiguracionPage() {
           </div>
         </div>
         <div>
-          <label className="label">Plazo de pago por defecto para compras sin vencimiento (días)</label>
+          <label className="label">Plazo de pago por defecto para compras (días)</label>
           <input
             className="input max-w-[140px]"
             type="number"
-            min={1}
+            min={0}
             value={orgForm.defaultPurchaseTermDays}
             onChange={(e) => setOrgForm({ ...orgForm, defaultPurchaseTermDays: e.target.value })}
           />
           <p className="text-xs text-slate-400 mt-1">
-            El SII no siempre informa la fecha de vencimiento de una factura de compra. Cuando falta, se
-            estima sumando este plazo a la fecha de emisión.
+            El SII nunca informa el plazo de pago real de una compra (es un acuerdo con el proveedor, no
+            un dato tributario), así que se estima sumando este plazo a la fecha de emisión. Configura un
+            plazo específico por proveedor en{" "}
+            <a href="/proveedores" className="underline text-brand">
+              Proveedores
+            </a>
+            .
           </p>
         </div>
         <button type="submit" className="btn-primary" disabled={savingOrg}>

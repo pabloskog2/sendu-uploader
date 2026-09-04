@@ -38,6 +38,14 @@ export const estimatedSaleSchema = z.object({
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
 });
 
+export const supplierSchema = z.object({
+  rut: z.string().min(1, "El RUT es obligatorio"),
+  name: z.string().optional().nullable(),
+  // vacío/null = usar el plazo por defecto de la organización; 0 = contado.
+  paymentTermDays: z.coerce.number().int().min(0).optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
 export const siiConnectionSchema = z.object({
   rut: z.string().min(1, "El RUT es obligatorio"),
   claveTributaria: z.string().min(1, "La Clave Tributaria es obligatoria"),
@@ -53,7 +61,7 @@ export const orgSettingsSchema = z.object({
   rut: z.string().optional().nullable(),
   cashBalance: z.coerce.number(),
   cashBalanceDate: z.coerce.date(),
-  defaultPurchaseTermDays: z.coerce.number().int().positive().default(30),
+  defaultPurchaseTermDays: z.coerce.number().int().min(0).default(30),
 });
 
 export const signupSchema = z.object({
