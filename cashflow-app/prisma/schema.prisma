@@ -1,0 +1,169 @@
+// Modelo de datos multi-tenant para el flujo de caja Sendu.
+// Nota: SQLite (usado en desarrollo) no soporta enums nativos de Prisma,
+// por eso los campos de "tipo fijo" son String y se validan con zod en
+// src/lib/validation.ts. Para producción, cambiar el datasource a
+// "postgresql" y opcionalmente convertir esos campos a enum real.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  rut             String?
+  cashBalance     Float    @default(0)
+  cashBalanceDate DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships       Membership[]
+  invoices          Invoice[]
+  recurringPayments RecurringPayment[]
+  oneTimePayments   OneTimePayment[]
+  estimatedSales    EstimatedSale[]
+  nuboxConnection   NuboxConnection?
+  nuboxSyncLogs     NuboxSyncLog[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  memberships Membership[]
+}
+
+// Une usuarios <-> empresas, permitiendo que Sendu venda el producto
+// a múltiples empresas y que un usuario pertenezca a más de una.
+model Membership {
+  id             String   @id @default(cuid())
+  role           String   @default("OWNER") // OWNER | ADMIN | MEMBER
+  userId         String
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+model NuboxConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  apiKey         String?
+  apiSecret      String?
+  companyId      String?
+  status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model NuboxSyncLog {
+  id             String    @id @default(cuid())
+  organizationId String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  status         String // RUNNING | SUCCESS | ERROR
+  message        String?
+  invoicesSynced Int       @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Facturas de venta (ingresos) y compra (egresos), sincronizadas desde
+// Nubox (u otra fuente en el futuro) o ingresadas manualmente.
+model Invoice {
+  id              String    @id @default(cuid())
+  organizationId  String
+  source          String    @default("NUBOX") // NUBOX | MANUAL
+  externalId      String?
+  type            String // SALE | PURCHASE
+  documentType    String? // factura | boleta | nota_credito | nota_debito
+  status          String    @default("PENDING") // PENDING | PAID | OVERDUE | VOID
+  issueDate       DateTime
+  dueDate         DateTime
+  paidDate        DateTime?
+  netAmount       Float
+  taxAmount       Float     @default(0)
+  totalAmount     Float
+  counterpartName String?
+  counterpartRut  String?
+  folio           String?
+  currency        String    @default("CLP")
+  raw             String? // JSON crudo tal como llega de Nubox, para trazabilidad
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, source, externalId])
+  @@index([organizationId, dueDate])
+  @@index([organizationId, type])
+}
+
+// Pagos recurrentes no facturables: previred, créditos de banco,
+// remuneraciones, arriendos, etc.
+model RecurringPayment {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  category       String // PREVIRED | CREDITO_BANCO | REMUNERACIONES | ARRIENDO | SEGUROS | OTRO
+  type           String    @default("EXPENSE") // EXPENSE | INCOME
+  amount         Float
+  frequency      String // MONTHLY | BIWEEKLY | WEEKLY | ANNUAL
+  dayOfMonth     Int? // usado por MONTHLY / ANNUAL (1-28)
+  weekday        Int? // usado por WEEKLY / BIWEEKLY (0=domingo .. 6=sábado)
+  startDate      DateTime
+  endDate        DateTime?
+  active         Boolean   @default(true)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Pagos únicos / proyectos puntuales (ingreso o egreso).
+model OneTimePayment {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  category       String   @default("PROYECTO") // PROYECTO | OTRO
+  type           String   @default("EXPENSE") // EXPENSE | INCOME
+  amount         Float
+  date           DateTime
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Ventas estimadas para períodos futuros (proyección comercial).
+model EstimatedSale {
+  id             String   @id @default(cuid())
+  organizationId String
+  periodMonth    DateTime // primer día del mes proyectado
+  amount         Float
+  description    String?
+  confidence     String   @default("MEDIUM") // LOW | MEDIUM | HIGH
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, periodMonth])
+}
