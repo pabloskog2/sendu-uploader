@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import SyncButton from "@/components/SyncButton";
+import Modal from "@/components/Modal";
+import ConnectionCard from "@/components/ConnectionCard";
 
 type Org = {
   name: string;
@@ -12,27 +13,13 @@ type Org = {
 };
 
 type Connection = {
-  status: string;
+  status: "DISCONNECTED" | "CONNECTED" | "ERROR";
   lastSyncedAt: string | null;
   lastError: string | null;
 } | null;
 
-function StatusBadge({ status }: { status?: string }) {
-  if (!status) return null;
-  return (
-    <span
-      className={`text-xs px-2 py-1 rounded-full ${
-        status === "CONNECTED"
-          ? "bg-green-100 text-income"
-          : status === "ERROR"
-          ? "bg-red-100 text-expense"
-          : "bg-slate-100 text-slate-500"
-      }`}
-    >
-      {status === "CONNECTED" ? "Conectado" : status === "ERROR" ? "Error" : "Desconectado"}
-    </span>
-  );
-}
+type SiiConnection = (Connection & { rut: string | null }) | null;
+type DuemintConnection = (Connection & { companyId: string | null }) | null;
 
 export default function ConfiguracionPage() {
   const [org, setOrg] = useState<Org | null>(null);
@@ -45,17 +32,13 @@ export default function ConfiguracionPage() {
   });
   const [savingOrg, setSavingOrg] = useState(false);
 
-  const [siiConnection, setSiiConnection] = useState<Connection>(null);
-  const [siiForm, setSiiForm] = useState({ rut: "", claveTributaria: "" });
-  const [savingSii, setSavingSii] = useState(false);
-  const [siiMessage, setSiiMessage] = useState<string | null>(null);
+  const [siiConnection, setSiiConnection] = useState<SiiConnection>(null);
+  const [siiModalOpen, setSiiModalOpen] = useState(false);
 
-  const [duemintConnection, setDuemintConnection] = useState<Connection>(null);
-  const [duemintForm, setDuemintForm] = useState({ apiToken: "", companyId: "" });
-  const [savingDuemint, setSavingDuemint] = useState(false);
-  const [duemintMessage, setDuemintMessage] = useState<string | null>(null);
+  const [duemintConnection, setDuemintConnection] = useState<DuemintConnection>(null);
+  const [duemintModalOpen, setDuemintModalOpen] = useState(false);
 
-  useEffect(() => {
+  function loadOrg() {
     fetch("/api/org")
       .then((r) => r.json())
       .then((data: Org) => {
@@ -68,18 +51,24 @@ export default function ConfiguracionPage() {
           defaultPurchaseTermDays: String(data.defaultPurchaseTermDays ?? 30),
         });
       });
+  }
+
+  function loadSii() {
     fetch("/api/sii/connection")
       .then((r) => r.json())
-      .then((data) => {
-        setSiiConnection(data);
-        if (data) setSiiForm({ rut: data.rut ?? "", claveTributaria: "" });
-      });
+      .then(setSiiConnection);
+  }
+
+  function loadDuemint() {
     fetch("/api/duemint/connection")
       .then((r) => r.json())
-      .then((data) => {
-        setDuemintConnection(data);
-        if (data) setDuemintForm({ apiToken: "", companyId: data.companyId ?? "" });
-      });
+      .then(setDuemintConnection);
+  }
+
+  useEffect(() => {
+    loadOrg();
+    loadSii();
+    loadDuemint();
   }, []);
 
   async function saveOrg(e: React.FormEvent) {
@@ -91,36 +80,6 @@ export default function ConfiguracionPage() {
       body: JSON.stringify(orgForm),
     });
     setSavingOrg(false);
-  }
-
-  async function saveSii(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingSii(true);
-    setSiiMessage(null);
-    const res = await fetch("/api/sii/connection", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(siiForm),
-    });
-    const data = await res.json();
-    setSiiConnection(data);
-    setSiiMessage(data.status === "CONNECTED" ? "✔ Conexión exitosa" : `❌ ${data.lastError ?? "Error"}`);
-    setSavingSii(false);
-  }
-
-  async function saveDuemint(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingDuemint(true);
-    setDuemintMessage(null);
-    const res = await fetch("/api/duemint/connection", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(duemintForm),
-    });
-    const data = await res.json();
-    setDuemintConnection(data);
-    setDuemintMessage(data.status === "CONNECTED" ? "✔ Conexión exitosa" : `❌ ${data.lastError ?? "Error"}`);
-    setSavingDuemint(false);
   }
 
   if (!org) return <p className="text-slate-400">Cargando...</p>;
@@ -194,24 +153,97 @@ export default function ConfiguracionPage() {
         </button>
       </form>
 
-      <form onSubmit={saveSii} className="card space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-700">Conexión con el SII (compras / egresos)</h2>
-          <StatusBadge status={siiConnection?.status} />
-        </div>
-        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          Se guarda tu Clave Tributaria para consultar el Registro de Compras y Venta. Es la misma
-          contraseña de tu portal en sii.cl — trátala como una credencial sensible.
-        </p>
+      <ConnectionCard
+        title="Conexión con el SII (compras / egresos)"
+        status={siiConnection?.status}
+        lastSyncedAt={siiConnection?.lastSyncedAt}
+        lastError={siiConnection?.lastError}
+        syncEndpoint="/api/sii/sync"
+        syncLabel="Sincronizar SII"
+        onOpenConfig={() => setSiiModalOpen(true)}
+      />
 
+      <ConnectionCard
+        title="Conexión con Duemint (ventas / cobros)"
+        status={duemintConnection?.status}
+        lastSyncedAt={duemintConnection?.lastSyncedAt}
+        lastError={duemintConnection?.lastError}
+        syncEndpoint="/api/duemint/sync"
+        syncLabel="Sincronizar Duemint"
+        onOpenConfig={() => setDuemintModalOpen(true)}
+      />
+
+      {siiModalOpen && (
+        <SiiConfigModal
+          initialRut={siiConnection?.rut ?? ""}
+          onClose={() => setSiiModalOpen(false)}
+          onSaved={() => {
+            loadSii();
+            setSiiModalOpen(false);
+          }}
+        />
+      )}
+
+      {duemintModalOpen && (
+        <DuemintConfigModal
+          initialCompanyId={duemintConnection?.companyId ?? ""}
+          onClose={() => setDuemintModalOpen(false)}
+          onSaved={() => {
+            loadDuemint();
+            setDuemintModalOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SiiConfigModal({
+  initialRut,
+  onClose,
+  onSaved,
+}: {
+  initialRut: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ rut: initialRut, claveTributaria: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    const res = await fetch("/api/sii/connection", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (data.status === "CONNECTED") {
+      onSaved();
+    } else {
+      setError(data.lastError ?? "No se pudo conectar");
+    }
+  }
+
+  return (
+    <Modal title="Conexión con el SII" onClose={onClose}>
+      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+        Se guarda tu Clave Tributaria para consultar el Registro de Compras y Venta. Es la misma
+        contraseña de tu portal en sii.cl — trátala como una credencial sensible.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="label">RUT empresa</label>
           <input
             className="input"
             required
             placeholder="76.123.456-7"
-            value={siiForm.rut}
-            onChange={(e) => setSiiForm({ ...siiForm, rut: e.target.value })}
+            value={form.rut}
+            onChange={(e) => setForm({ ...form, rut: e.target.value })}
           />
         </div>
         <div>
@@ -220,43 +252,70 @@ export default function ConfiguracionPage() {
             className="input"
             type="password"
             required
-            value={siiForm.claveTributaria}
-            onChange={(e) => setSiiForm({ ...siiForm, claveTributaria: e.target.value })}
+            value={form.claveTributaria}
+            onChange={(e) => setForm({ ...form, claveTributaria: e.target.value })}
           />
         </div>
-
-        <div className="flex items-center gap-3">
-          <button type="submit" className="btn-secondary" disabled={savingSii}>
-            {savingSii ? "Probando..." : "Guardar y probar conexión"}
-          </button>
-          {siiMessage && <span className="text-sm text-slate-500">{siiMessage}</span>}
-        </div>
-
-        {siiConnection?.lastSyncedAt && (
-          <p className="text-xs text-slate-400">
-            Última sincronización: {new Date(siiConnection.lastSyncedAt).toLocaleString("es-CL")}
+        {error && (
+          <p className="text-xs text-expense break-words whitespace-pre-wrap max-h-40 overflow-y-auto bg-red-50 border border-red-200 rounded-lg p-2">
+            {error}
           </p>
         )}
-
-        <div className="pt-2 border-t border-slate-100">
-          <SyncButton endpoint="/api/sii/sync" label="Sincronizar SII" />
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="btn-secondary">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? "Probando..." : "Guardar y probar conexión"}
+          </button>
         </div>
       </form>
+    </Modal>
+  );
+}
 
-      <form onSubmit={saveDuemint} className="card space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-700">Conexión con Duemint (ventas / cobros)</h2>
-          <StatusBadge status={duemintConnection?.status} />
-        </div>
+function DuemintConfigModal({
+  initialCompanyId,
+  onClose,
+  onSaved,
+}: {
+  initialCompanyId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ apiToken: "", companyId: initialCompanyId });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    const res = await fetch("/api/duemint/connection", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (data.status === "CONNECTED") {
+      onSaved();
+    } else {
+      setError(data.lastError ?? "No se pudo conectar");
+    }
+  }
+
+  return (
+    <Modal title="Conexión con Duemint" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="label">API Token</label>
           <input
             className="input"
             type="password"
             required
-            value={duemintForm.apiToken}
-            onChange={(e) => setDuemintForm({ ...duemintForm, apiToken: e.target.value })}
+            value={form.apiToken}
+            onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
           />
         </div>
         <div>
@@ -264,28 +323,24 @@ export default function ConfiguracionPage() {
           <input
             className="input"
             required
-            value={duemintForm.companyId}
-            onChange={(e) => setDuemintForm({ ...duemintForm, companyId: e.target.value })}
+            value={form.companyId}
+            onChange={(e) => setForm({ ...form, companyId: e.target.value })}
           />
         </div>
-
-        <div className="flex items-center gap-3">
-          <button type="submit" className="btn-secondary" disabled={savingDuemint}>
-            {savingDuemint ? "Probando..." : "Guardar y probar conexión"}
-          </button>
-          {duemintMessage && <span className="text-sm text-slate-500">{duemintMessage}</span>}
-        </div>
-
-        {duemintConnection?.lastSyncedAt && (
-          <p className="text-xs text-slate-400">
-            Última sincronización: {new Date(duemintConnection.lastSyncedAt).toLocaleString("es-CL")}
+        {error && (
+          <p className="text-xs text-expense break-words whitespace-pre-wrap max-h-40 overflow-y-auto bg-red-50 border border-red-200 rounded-lg p-2">
+            {error}
           </p>
         )}
-
-        <div className="pt-2 border-t border-slate-100">
-          <SyncButton endpoint="/api/duemint/sync" label="Sincronizar Duemint" />
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="btn-secondary">
+            Cancelar
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? "Probando..." : "Guardar y probar conexión"}
+          </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
