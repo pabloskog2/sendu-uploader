@@ -103,25 +103,62 @@ Pendiente de confirmar: el nombre exacto del query param de paginación
 así nunca hace loop infinito). Poner `DUEMINT_MODE=live` en `.env` una vez
 confirmado.
 
-## Integración con el SII — decisión tomada: Clave Tributaria
+## Integración con el SII — implementada con Playwright, pendiente de validar en vivo
 
 Se decidió avanzar con Clave Tributaria (RUT + contraseña del portal
 sii.cl) en vez de certificado digital, priorizando el onboarding
-self-service para vender a muchas empresas. `src/lib/sii-client.ts` deja la
-interfaz (`SiiClient.fetchPurchaseInvoices`) y un cliente mock, pero **la
-implementación real (`SiiRcvClient`) sigue sin hacer**: a diferencia de
-Nubox/Duemint, el SII no tiene una API REST pública para terceros — lo que
-existe es automatizar la sesión del portal (login + navegar el Registro de
-Compras y Venta), no un cliente de API convencional.
+self-service para vender a muchas empresas. A diferencia de Nubox/Duemint,
+el SII no tiene una API REST pública para terceros — lo que hay es la SPA
+en Angular del propio portal (`www4.sii.cl/consdcvinternetui`), autenticada
+por cookie.
 
-Con una captura HAR real ya se confirmaron dos endpoints (documentados en
-detalle en `sii-client.ts`): `aaSessionService/load` (valida la sesión) y
-`consdcvinternetui/services/data/facadeService/getResumen` (trae el RCV,
-pero **agregado por tipo de documento y mes** — no factura por factura).
-Sigue faltando: el POST de login real contra `zeusr.sii.cl` (la captura
-empezó con la sesión ya iniciada) y el endpoint de detalle por documento
-individual (folio, fecha, contraparte). Sin esos dos no se puede armar el
-cliente real — mejor eso que adivinar endpoints de login/autenticación.
+`SiiRcvClient` (`src/lib/sii-client.ts`) **ya está implementado**, con tres
+capturas HAR reales de respaldo:
+
+- `POST .../facadeService/getResumen`: agregado mensual por tipo de
+  documento (no factura por factura, solo se usa para replicar la
+  secuencia real de la UI).
+- `POST .../facadeService/getDetalleCompraExport`: **el endpoint clave** —
+  devuelve el detalle factura por factura (folio, fecha, RUT y nombre del
+  proveedor, montos) como filas CSV dentro de un JSON. Confirmado para
+  `estadoContab=REGISTRO` (documentos ya registrados) y `PENDIENTE`
+  (recibidos pero aún dentro del plazo de aceptación/reclamo — se
+  consultan ambos y se importan igual, porque siguen siendo compras
+  reales). El orden y cantidad de columnas **cambia** entre ambos estados,
+  por eso el parseo siempre usa el encabezado de cada respuesta
+  (`src/lib/csv.ts`), nunca posiciones fijas.
+- El login (RUT + Clave Tributaria) se resolvió con un navegador headless
+  (Playwright) que llena el formulario real de `zeusr.sii.cl` — no se logró
+  capturar el POST de login en HAR (ambas capturas empezaron con la sesión
+  ya iniciada), así que en vez de adivinar sus parámetros exactos, se
+  automatiza la sesión del navegador tal como la usaría una persona. Las
+  llamadas de datos se hacen luego con `page.evaluate(fetch(...))` **dentro**
+  de esa misma sesión de navegador, para heredar automáticamente cookies y
+  headers sin tener que replicarlos a mano.
+
+**Lo que no se pudo validar en vivo** (este entorno de desarrollo no tiene
+salida de red hacia sii.cl, confirmado con varias pruebas): el flujo
+completo de login sí se probó hasta donde el sandbox lo permite —
+Playwright lanza Chromium, navega a la URL real y falla limpiamente
+(`{ok:false, message}`, sin crashear) al no poder alcanzar sii.cl, que es
+el comportamiento esperado. Falta la prueba real con credenciales válidas
+desde un entorno con internet. Ahí, revisar primero si algo falla:
+- Los selectores del formulario de login (`getByLabel`) están hechos desde
+  una captura de pantalla, no del HTML real — si el SII nombra los campos
+  de otra forma, hay que ajustar los selectores en `launchAndLogin()`.
+- El valor `tokenRecaptcha: "t-o-k-e-n-web"` es literal, así vino en ambas
+  capturas y funcionó (`codRespuesta: 0`) — no hay forma de confirmar si el
+  SII simplemente no valida ese campo en este endpoint o si fue
+  coincidencia de esa sesión.
+- Notas de crédito/débito de compra (Tipo Doc 60/61) no se netean contra
+  el documento que referencian (no había ninguna en los datos de ejemplo
+  para calibrar esa lógica) — por ahora entran como una compra más.
+
+**Requisito de despliegue nuevo**: `SII_MODE=live` necesita un ejecutable
+de Chromium disponible en el servidor (`SII_CHROMIUM_PATH`) — es más pesado
+que los otros clientes (memoria, tiempo de ejecución), así que conviene
+correrlo en un contenedor/servidor persistente, no en una function
+serverless con límites de tiempo/tamaño ajustados.
 
 ### Riesgos de usar la Clave Tributaria (y por qué "solo son GET" no los reduce)
 
@@ -220,10 +257,14 @@ reales:**
 
 ## Pendiente / siguientes pasos sugeridos
 
-- Implementar `SiiRcvClient` con datos reales del flujo de login/RCV (ver
-  TODOs en `src/lib/sii-client.ts`: falta una captura HAR o acceso de red
-  a sii.cl para hacerlo sin adivinar) y aplicar el plan operativo de la
-  sección de riesgos (un solo intento de login, alertas, consentimiento).
+- Validar `SiiRcvClient` con credenciales reales desde un entorno con
+  salida de red a sii.cl (aquí no se pudo) y ajustar los selectores de
+  login si hace falta — ver la sección de integración SII arriba.
+- Aplicar el resto del plan operativo antes de usar credenciales reales:
+  alertas si el sync falla ampliamente, consentimiento explícito del
+  cliente, espaciar syncs entre empresas.
+- Decidir dónde correr `SII_MODE=live` en producción (necesita Chromium
+  disponible — un contenedor/servidor persistente, no serverless).
 - Confirmar el param de paginación de Duemint y el listado completo de
   códigos de `status` con su documentación.
 - Reemplazar el datasource de Prisma por `postgresql` y desplegar en un
