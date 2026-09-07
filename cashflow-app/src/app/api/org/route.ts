@@ -9,7 +9,7 @@ export async function GET() {
 
   const org = await prisma.organization.findUnique({
     where: { id: session.organizationId },
-    include: { siiConnection: true, duemintConnection: true },
+    include: { nuboxConnection: true, duemintConnection: true },
   });
   return NextResponse.json(org);
 }

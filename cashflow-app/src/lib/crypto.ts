@@ -1,13 +1,6 @@
 /**
  * Cifrado simétrico (AES-256-GCM) para credenciales sensibles guardadas en
- * la base de datos: la Clave Tributaria del SII y el token de Duemint.
- *
- * Por qué esto importa especialmente para la Clave Tributaria: es la
- * contraseña completa del portal tributario de la empresa, no una API key
- * de solo lectura — si la base de datos se filtra en texto plano, quien la
- * lea puede entrar a sii.cl como esa empresa (declarar, ceder facturas,
- * ver toda su situación tributaria), sin importar que nuestra propia app
- * solo la use para hacer GET.
+ * la base de datos: los tokens de API de Nubox y Duemint.
  */
 import crypto from "crypto";
 

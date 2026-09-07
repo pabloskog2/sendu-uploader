@@ -1,10 +1,9 @@
 /**
- * Cliente de integración con Duemint (cobranza).
- *
- * Duemint gestiona el cobro de las facturas de venta que la empresa emite a
- * sus clientes, así que el endpoint `collection-documents` entrega en un
- * solo lugar lo que el SII no informa: fecha de vencimiento real y estado
- * de pago (pagada / por vencer / vencida) de cada documento.
+ * Cliente de integración con Duemint (cobranza), rol acotado: el facturador
+ * (Nubox) ya trae la factura de venta completa con su fecha de vencimiento
+ * real, así que de esta respuesta solo se usa `status`/`paidDate` para
+ * actualizar (nunca crear) la factura correspondiente, emparejando por
+ * folio — ver `src/app/api/duemint/sync/route.ts`.
  *
  * Verificado contra una respuesta real de
  * `GET https://api.duemint.com/api/v1/collection-documents`:

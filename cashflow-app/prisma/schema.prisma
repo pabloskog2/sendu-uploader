@@ -1,6 +1,7 @@
 // Modelo de datos multi-tenant para el flujo de caja Sendu.
-// Fuentes de facturas: SII (Registro de Compras y Venta, para egresos) y
-// Duemint (cobranza de ventas emitidas, para ingresos + estado de pago).
+// Fuente de facturas: el facturador de cada empresa (piloto con Nubox),
+// que ya trae compras y ventas con fecha de vencimiento real. Duemint es
+// opcional y solo enriquece las ventas con el estado real de cobro.
 // Nota: SQLite (usado en desarrollo) no soporta enums nativos de Prisma,
 // por eso los campos de "tipo fijo" son String y se validan con zod en
 // src/lib/validation.ts. Para producción, cambiar el datasource a
@@ -21,12 +22,6 @@ model Organization {
   rut             String?
   cashBalance     Float    @default(0)
   cashBalanceDate DateTime @default(now())
-  // Plazo de pago por defecto (días) para facturas de compra del SII, que
-  // nunca trae fecha de vencimiento (es un dato del acuerdo comercial con
-  // el proveedor, no un dato tributario). Cada Supplier puede sobreescribir
-  // este valor; 0 días = contado (se marca pagada de inmediato, sin
-  // proyectarse como egreso futuro).
-  defaultPurchaseTermDays Int @default(30)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -35,8 +30,7 @@ model Organization {
   recurringPayments RecurringPayment[]
   oneTimePayments   OneTimePayment[]
   estimatedSales    EstimatedSale[]
-  suppliers         Supplier[]
-  siiConnection     SiiConnection?
+  nuboxConnection   NuboxConnection?
   duemintConnection DuemintConnection?
   syncLogs          SyncLog[]
 }
@@ -66,15 +60,13 @@ model Membership {
   @@unique([userId, organizationId])
 }
 
-// Conexión al SII (Registro de Compras y Venta) para traer las facturas de
-// compra (egresos). Se autentica con la Clave Tributaria de cada empresa,
-// no con un certificado digital: ver README para las implicancias de
-// seguridad de guardar esta credencial.
-model SiiConnection {
+// Conexión al facturador de la empresa (piloto: Nubox), fuente principal de
+// facturas de compra y venta, con fecha de vencimiento real de ambas.
+model NuboxConnection {
   id             String    @id @default(cuid())
   organizationId String    @unique
-  rut            String?
-  claveTributaria String?
+  apiToken       String?
+  companyId      String?
   status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
   lastSyncedAt   DateTime?
   lastError      String?
@@ -84,9 +76,9 @@ model SiiConnection {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-// Conexión a Duemint (cobranza) para traer las facturas de venta emitidas
-// a clientes junto con su estado real de pago (Duemint entrega vencimiento
-// y fecha de pago, algo que el SII no informa).
+// Conexión a Duemint (cobranza), opcional: solo enriquece las facturas de
+// venta ya traídas desde el facturador con su estado real de cobro (pagada,
+// pendiente, vencida), buscándolas por folio. No crea facturas nuevas.
 model DuemintConnection {
   id             String    @id @default(cuid())
   organizationId String    @unique
@@ -104,7 +96,7 @@ model DuemintConnection {
 model SyncLog {
   id             String    @id @default(cuid())
   organizationId String
-  source         String // SII | DUEMINT
+  source         String // NUBOX | DUEMINT
   startedAt      DateTime  @default(now())
   finishedAt     DateTime?
   status         String // RUNNING | SUCCESS | ERROR
@@ -114,31 +106,13 @@ model SyncLog {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-// Proveedores conocidos, para asignar un plazo de pago real (negociado
-// bilateralmente, no un dato del SII) a sus facturas de compra.
-model Supplier {
-  id              String   @id @default(cuid())
-  organizationId  String
-  rut             String // normalizado sin puntos ni guion, ver src/lib/rut.ts
-  name            String?
-  // null = usar Organization.defaultPurchaseTermDays; 0 = contado (pagada
-  // de inmediato, no se proyecta como egreso futuro).
-  paymentTermDays Int?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, rut])
-}
-
-// Facturas de venta (ingresos, vía Duemint) y de compra (egresos, vía SII),
-// o ingresadas manualmente.
+// Facturas de venta y de compra traídas del facturador (Nubox), o
+// ingresadas manualmente. Duemint no es una fuente propia: solo actualiza
+// el estado de pago de las facturas de venta que ya existen aquí.
 model Invoice {
   id              String    @id @default(cuid())
   organizationId  String
-  source          String    @default("MANUAL") // SII | DUEMINT | MANUAL
+  source          String    @default("MANUAL") // NUBOX | MANUAL
   externalId      String?
   type            String // SALE | PURCHASE
   documentType    String? // factura | boleta | nota_credito | nota_debito

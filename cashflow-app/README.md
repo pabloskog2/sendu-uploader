@@ -6,9 +6,9 @@ usuarios y datos).
 
 ## Qué hace
 
-1. **Egresos (compras)** desde el **SII** (Registro de Compras y Venta) y
-   **ingresos (ventas) + estado real de pago** desde **Duemint** — ver
-   "Fuentes de datos" más abajo para el porqué de usar dos fuentes distintas.
+1. **Compras y ventas** desde el **facturador** de cada empresa (piloto con
+   **Nubox**) — ver "Fuentes de datos" más abajo para el porqué del pivote
+   desde el SII.
 2. **Pagos recurrentes**: gastos fijos no facturables (Previred, remuneraciones,
    créditos bancarios, arriendos, seguros, etc.) o ingresos recurrentes,
    configurables por frecuencia (semanal, quincenal, mensual, anual).
@@ -20,45 +20,33 @@ usuarios y datos).
    seleccionables), mostrando gráfico, saldo mínimo proyectado y desglose
    semanal.
 
-## Fuentes de datos: por qué SII + Duemint (no un solo facturador)
+## Fuentes de datos: por qué el facturador (Nubox) y no el SII
 
-Conectar a un facturador específico (ej. Nubox) obligaría a hacer una
-integración distinta por cada facturador que use cada empresa cliente. Para
-un producto que se vende a muchas empresas, conviene una fuente genérica:
+La primera versión de esta app usaba el Registro de Compras y Venta del SII
+(vía scraping con Playwright, autenticado con Clave Tributaria) para traer
+las compras, precisamente para evitar depender de qué facturador use cada
+empresa cliente. Se abandonó ese enfoque:
 
-- **SII (compras/egresos)**: el SII es la fuente de verdad para cualquier
-  empresa chilena, sin depender de qué facturador use. Pero **el SII no
-  informa si un documento fue pagado**, solo su estado tributario (emitido,
-  aceptado, reclamado).
-- **Duemint (ventas/ingresos + pago)**: como Duemint gestiona la cobranza de
-  las facturas que la empresa emite a sus clientes, su endpoint
-  `collection-documents` entrega en un solo lugar fecha de vencimiento real
-  y si ya se pagó (y cuándo) — justo lo que al SII le falta. Por eso las
-  ventas se traen de Duemint en vez del SII.
-
-Esto significa que hoy la app no cubre "ventas emitidas pero aún no
-cargadas a Duemint" ni "compras con proveedores que no pasan por el SII" —
-casos borde a tener en cuenta si se generaliza a otra empresa que no use
-Duemint para cobranza.
-
-### Fecha de vencimiento y forma de pago en compras (SII)
-
-Confirmado revisando el detalle real del Registro de Compras y Venta: el
-SII **nunca** informa fecha de vencimiento ni si una compra es al contado
-o a crédito para ningún documento — no es un dato que falte a veces, es
-que no es información tributaria, sino un acuerdo comercial privado con
-cada proveedor.
-
-Por eso ese dato se resuelve en la app, no en `sii-client.ts` (que solo
-normaliza lo que el SII sí entrega): `src/lib/purchase-terms.ts` calcula
-el vencimiento sumando un plazo de pago a la fecha de emisión, usando —
-en este orden — el plazo configurado para ese proveedor en **Proveedores**
-(`Supplier.paymentTermDays`), o si no está configurado, el plazo por
-defecto de la empresa (`Organization.defaultPurchaseTermDays`,
-Configuración). Un plazo de **0 días se interpreta como contado**: la
-factura se marca pagada de inmediato (con `paidDate` = fecha de emisión) y
-por lo tanto no se proyecta como egreso futuro en el flujo de caja —
-exactamente el caso que había que evitar.
+- **El SII no tiene API oficial para terceros.** Lo que había era la SPA
+  interna del portal, autenticada por cookie de sesión — un scraping, no una
+  integración con contrato. En la práctica dejó de traer datos de forma
+  silenciosa (probablemente detección anti-bot del propio SII), sin ningún
+  error explícito, confirmando el riesgo que ya se había documentado antes
+  del pivote: sin SLA, el sitio puede cambiar o bloquear el patrón de
+  acceso en cualquier momento.
+- **El facturador (Nubox) ya tiene el documento completo en ambos sentidos**
+  — compras recibidas y ventas emitidas, cada una con su fecha de
+  vencimiento real — porque es el sistema donde la empresa emite y registra
+  sus DTEs. A diferencia del SII, tiene API propia pensada para integrarse.
+- La contrapartida: cada empresa cliente usa un facturador distinto (Nubox,
+  Bsale, Defontana, Chipax, etc.), así que vender esto a otra empresa que no
+  use Nubox requiere un conector nuevo por facturador. Se acepta ese costo a
+  cambio de una integración con API real en vez de scraping frágil.
+- **Duemint** queda con un rol acotado: como gestiona la cobranza de las
+  facturas de venta, solo se usa para actualizar el **estado de pago**
+  (pagada / pendiente / vencida) de facturas que ya existen (creadas desde
+  Nubox), emparejándolas por folio. No crea facturas nuevas ni es necesario
+  para que la app funcione.
 
 ## Stack
 
@@ -82,12 +70,37 @@ npm run dev
 Abre http://localhost:3000 e ingresa con `demo@sendu.cl` / `demo1234`, o crea
 una empresa nueva desde `/signup`.
 
-Por defecto `SII_MODE=mock` y `DUEMINT_MODE=mock` en `.env.example`, así que
+Por defecto `NUBOX_MODE=mock` y `DUEMINT_MODE=mock` en `.env.example`, así que
 en Configuración puedes "conectar" con cualquier credencial y los botones de
 sincronización generan facturas de ejemplo, para ver el flujo de caja
 funcionando sin credenciales reales.
 
-## Integración con Duemint — ya implementada, pendiente de confirmar detalles menores
+## Integración con Nubox — pendiente de validar contra la API real
+
+`src/lib/nubox-client.ts` (`NuboxApiClient`) es una implementación **sin
+confirmar todavía**: no se cuenta con documentación ni credenciales de la
+API de Nubox en este momento, así que los endpoints (`sales-documents`,
+`purchase-documents`), el esquema de autenticación (`Bearer` + header
+`companyId`) y la forma de paginación son un mejor esfuerzo razonable, no
+una captura real — a diferencia de como se construyó la integración con
+Duemint (validada contra una respuesta real).
+
+Antes de activar `NUBOX_MODE=live`:
+1. Conseguir documentación oficial de la API de Nubox, o un HAR real de su
+   portal (Red del navegador → exportar/ver ventas y compras) — el mismo
+   método que se usó para confirmar Duemint y, antes, el SII.
+2. Ajustar `NUBOX_API_BASE_URL`, los paths de `nubox-client.ts` y
+   `mapNuboxDocument()` a la forma real de la respuesta.
+3. Confirmar los nombres de campo para fecha de vencimiento y estado de pago
+   de compras — es lo que reemplaza la estimación que antes hacía
+   `purchase-terms.ts` con el SII, y ahora debería venir directo del
+   facturador.
+
+Mientras tanto, `NUBOX_MODE=mock` (default) permite construir y probar el
+resto de la app (UI, sync, flujo de caja) con datos de ejemplo realistas de
+compras y ventas con vencimiento real.
+
+## Integración con Duemint — ya implementada, con rol acotado a estado de pago
 
 `src/lib/duemint-client.ts` (`DuemintApiClient`) llama a
 `GET https://api.duemint.com/api/v1/collection-documents` con:
@@ -98,147 +111,29 @@ funcionando sin credenciales reales.
   `paidAmount` y `dueDate` en vez de confiar en el código `status` numérico,
   porque no está completamente documentado.
 
+`src/app/api/duemint/sync/route.ts` solo usa `status`/`paidDate` de cada
+documento para actualizar (nunca crear) la factura de venta correspondiente,
+buscándola por `folio` dentro de la misma empresa — el resto de los campos
+que trae Duemint (montos, cliente, vencimiento) se ignoran, porque esos ya
+vienen de Nubox.
+
 Pendiente de confirmar: el nombre exacto del query param de paginación
 (se asume `page`; el cliente corta solo si deja de recibir items nuevos,
 así nunca hace loop infinito). Poner `DUEMINT_MODE=live` en `.env` una vez
 confirmado.
 
-## Integración con el SII — implementada con Playwright, pendiente de validar en vivo
-
-Se decidió avanzar con Clave Tributaria (RUT + contraseña del portal
-sii.cl) en vez de certificado digital, priorizando el onboarding
-self-service para vender a muchas empresas. A diferencia de Nubox/Duemint,
-el SII no tiene una API REST pública para terceros — lo que hay es la SPA
-en Angular del propio portal (`www4.sii.cl/consdcvinternetui`), autenticada
-por cookie.
-
-`SiiRcvClient` (`src/lib/sii-client.ts`) **ya está implementado**, con tres
-capturas HAR reales de respaldo:
-
-- `POST .../facadeService/getResumen`: agregado mensual por tipo de
-  documento (no factura por factura, solo se usa para replicar la
-  secuencia real de la UI).
-- `POST .../facadeService/getDetalleCompraExport`: **el endpoint clave** —
-  devuelve el detalle factura por factura (folio, fecha, RUT y nombre del
-  proveedor, montos) como filas CSV dentro de un JSON. Confirmado para
-  `estadoContab=REGISTRO` (documentos ya registrados) y `PENDIENTE`
-  (recibidos pero aún dentro del plazo de aceptación/reclamo — se
-  consultan ambos y se importan igual, porque siguen siendo compras
-  reales). El orden y cantidad de columnas **cambia** entre ambos estados,
-  por eso el parseo siempre usa el encabezado de cada respuesta
-  (`src/lib/csv.ts`), nunca posiciones fijas.
-- El login (RUT + Clave Tributaria) se resolvió con un navegador headless
-  (Playwright) que llena el formulario real de `zeusr.sii.cl` — no se logró
-  capturar el POST de login en HAR (ambas capturas empezaron con la sesión
-  ya iniciada), así que en vez de adivinar sus parámetros exactos, se
-  automatiza la sesión del navegador tal como la usaría una persona. Las
-  llamadas de datos se hacen luego con `page.evaluate(fetch(...))` **dentro**
-  de esa misma sesión de navegador, para heredar automáticamente cookies y
-  headers sin tener que replicarlos a mano.
-
-**Lo que no se pudo validar en vivo** (este entorno de desarrollo no tiene
-salida de red hacia sii.cl, confirmado con varias pruebas): el flujo
-completo de login sí se probó hasta donde el sandbox lo permite —
-Playwright lanza Chromium, navega a la URL real y falla limpiamente
-(`{ok:false, message}`, sin crashear) al no poder alcanzar sii.cl, que es
-el comportamiento esperado. Falta la prueba real con credenciales válidas
-desde un entorno con internet. Ahí, revisar primero si algo falla:
-- Los selectores del formulario de login (`getByLabel`) están hechos desde
-  una captura de pantalla, no del HTML real — si el SII nombra los campos
-  de otra forma, hay que ajustar los selectores en `launchAndLogin()`.
-- El valor `tokenRecaptcha: "t-o-k-e-n-web"` es literal, así vino en ambas
-  capturas y funcionó (`codRespuesta: 0`) — no hay forma de confirmar si el
-  SII simplemente no valida ese campo en este endpoint o si fue
-  coincidencia de esa sesión.
-- Notas de crédito/débito de compra (Tipo Doc 60/61) no se netean contra
-  el documento que referencian (no había ninguna en los datos de ejemplo
-  para calibrar esa lógica) — por ahora entran como una compra más.
-
-**Requisito de despliegue nuevo**: `SII_MODE=live` necesita un ejecutable
-de Chromium disponible en el servidor (`SII_CHROMIUM_PATH`) — es más pesado
-que los otros clientes (memoria, tiempo de ejecución), así que conviene
-correrlo en un contenedor/servidor persistente, no en una function
-serverless con límites de tiempo/tamaño ajustados.
-
-### Riesgos de usar la Clave Tributaria (y por qué "solo son GET" no los reduce)
-
-Es una idea razonable pensar que como el cliente solo hace lecturas
-(`GET`) filtradas por fecha, el riesgo es bajo — pero el riesgo real no
-está en qué verbo HTTP usa nuestro código una vez adentro, sino en dos
-cosas distintas:
-
-1. **Qué es lo que se guarda.** La Clave Tributaria no es una API key de
-   solo lectura — es la contraseña completa del portal tributario de la
-   empresa. Con ella se puede hacer mucho más que ver facturas: declarar,
-   ceder documentos a factoring, ver toda la situación tributaria. Si la
-   base de datos de Sendu se filtra (o alguien con acceso interno hace mal
-   uso), el radio de daño no depende de que nuestro propio cliente solo
-   lea — depende de lo que esa contraseña permite hacer en manos de quien
-   sea que la obtenga. **Mitigación implementada**: se guarda cifrada
-   (AES-256-GCM, `src/lib/crypto.ts`) y nunca se devuelve por la API a un
-   navegador, ni siquiera cifrada (`src/app/api/sii/connection/route.ts`).
-   Falta: nunca loguear el valor en texto plano en ninguna parte (logs de
-   errores, Sentry, etc.) — revisar esto al implementar `SiiRcvClient`.
-
-2. **Qué es lo que se automatiza.** El paso sensible no es "consultar
-   facturas" — es **el login automatizado en sí**, repetido para muchas
-   empresas, probablemente desde un rango de IPs fijo de infraestructura
-   de Sendu. Eso es exactamente el patrón que los sistemas anti-fraude de
-   un portal bancario/tributario están diseñados para detectar, sin
-   importar que después de loguearse solo se haga una lectura filtrada:
-   - Puede activar bloqueos temporales o solicitar verificación adicional
-     en la cuenta del **cliente real**, afectándolo a él, no solo a Sendu.
-   - Un bug que reintente logins fallidos automáticamente podría agotar
-     intentos y bloquear la cuenta — por eso `SiiRcvClient.login()` debe
-     hacer **un solo intento por sync, nunca reintentar automáticamente**
-     una falla de autenticación.
-   - No hay contrato ni SLA: el SII puede cambiar su sitio sin aviso y
-     romper la integración silenciosamente (el sync fallaría, pero vale la
-     pena alertar explícitamente en vez de solo loguearlo, para no mostrar
-     "conectado" con datos en verdad desactualizados).
-   - No existe una versión "de solo lectura" o con permisos acotados de la
-     Clave Tributaria (a diferencia de, por ejemplo, un token OAuth de
-     alcance limitado) — es todo o nada.
-   - Usar el portal de esta forma no es un canal que el SII sancione para
-     terceros; conviene tratarlo como una automatización tolerada mientras
-     funcione, no como una integración con garantías, y tener ya pensado un
-     plan B (o una vía oficial, como certificado digital, si el SII llega
-     a exigirlo o bloquearlo más adelante).
-
-3. **Consentimiento**: como esto excede lo que un proveedor de software
-   normalmente necesita (una contraseña completa, no un scope acotado),
-   cada empresa cliente debería dar un consentimiento explícito y
-   documentado de que autoriza a Sendu a usar su Clave Tributaria de esta
-   forma — no asumir que "instalar la app" ya cubre esto.
-
-**Plan operativo mínimo antes de activar `SII_MODE=live` con credenciales
-reales:**
-- Un solo intento de login por sync; sin reintentos automáticos.
-- Espaciar las sincronizaciones entre empresas (no todas al mismo tiempo)
-  para no parecer tráfico en ráfaga desde una misma IP.
-- Alertar (no solo loguear) si el sync empieza a fallar de forma amplia —
-  probable señal de que el SII cambió algo, no un caso puntual.
-- Checkbox/registro explícito de consentimiento del cliente antes de pedir
-  su Clave Tributaria.
-- Nunca imprimir la Clave Tributaria en logs, mensajes de error o
-  respuestas de API.
-
 ## Modelo de datos (multi-empresa)
 
 - `Organization`: una empresa cliente de Sendu (o Sendu misma). Tiene su
-  saldo de caja actual (`cashBalance` / `cashBalanceDate`) y el plazo de
-  pago por defecto (`defaultPurchaseTermDays`) como puntos de partida de la
-  proyección.
+  saldo de caja actual (`cashBalance` / `cashBalanceDate`) como punto de
+  partida de la proyección.
 - `User` + `Membership`: permite que un usuario pertenezca a una o más
   empresas, y que cada empresa venda el producto de forma independiente.
-- `Invoice`: facturas normalizadas, con `source` = `SII` | `DUEMINT` | `MANUAL`.
-- `Supplier`: proveedores con su plazo de pago real (`paymentTermDays`;
-  `null` = usar el de la organización, `0` = contado). Ver la sección de
-  vencimiento de compras arriba.
+- `Invoice`: facturas normalizadas, con `source` = `NUBOX` | `MANUAL`.
 - `RecurringPayment`, `OneTimePayment`, `EstimatedSale`: las tres fuentes de
   proyección manual.
-- `SiiConnection`, `DuemintConnection`, `SyncLog`: credenciales y auditoría
-  de sincronización por empresa y por fuente.
+- `NuboxConnection`, `DuemintConnection`, `SyncLog`: credenciales y
+  auditoría de sincronización por empresa y por fuente.
 
 ## Motor de flujo de caja
 
@@ -257,22 +152,20 @@ reales:**
 
 ## Pendiente / siguientes pasos sugeridos
 
-- Validar `SiiRcvClient` con credenciales reales desde un entorno con
-  salida de red a sii.cl (aquí no se pudo) y ajustar los selectores de
-  login si hace falta — ver la sección de integración SII arriba.
-- Aplicar el resto del plan operativo antes de usar credenciales reales:
-  alertas si el sync falla ampliamente, consentimiento explícito del
-  cliente, espaciar syncs entre empresas.
-- Decidir dónde correr `SII_MODE=live` en producción (necesita Chromium
-  disponible — un contenedor/servidor persistente, no serverless).
+- Conseguir documentación o acceso de prueba a la API de Nubox y validar
+  `NuboxApiClient` contra datos reales — ver la sección de integración
+  Nubox arriba.
 - Confirmar el param de paginación de Duemint y el listado completo de
   códigos de `status` con su documentación.
+- Diseñar el conector para el siguiente facturador (Bsale, Defontana,
+  Chipax, etc.) reutilizando la misma interfaz `NuboxClient`/`getXClient()`,
+  a medida que se sumen clientes que no usen Nubox.
 - Reemplazar el datasource de Prisma por `postgresql` y desplegar en un
   proveedor administrado para producción real multi-cliente.
 - Agregar roles más granulares (hoy todo usuario nuevo es `OWNER` de su
   empresa) si se necesita separar Admin/Solo lectura.
-- Rotar `APP_ENCRYPTION_KEY` requiere re-cifrar `SiiConnection.claveTributaria`
-  y `DuemintConnection.apiToken` existentes (hoy no hay un script para eso;
+- Rotar `APP_ENCRYPTION_KEY` requiere re-cifrar `NuboxConnection.apiToken` y
+  `DuemintConnection.apiToken` existentes (hoy no hay un script para eso;
   agregarlo antes de rotar la clave en un entorno con datos reales).
 - **Antes de desplegar a producción**, actualizar Next.js a la versión 16
   (`npm audit` reporta varias vulnerabilidades altas en la serie 14.x/15.x

@@ -9,7 +9,6 @@ type Org = {
   rut: string | null;
   cashBalance: number;
   cashBalanceDate: string;
-  defaultPurchaseTermDays: number;
 };
 
 type Connection = {
@@ -18,7 +17,7 @@ type Connection = {
   lastError: string | null;
 } | null;
 
-type SiiConnection = (Connection & { rut: string | null }) | null;
+type NuboxConnection = (Connection & { companyId: string | null }) | null;
 type DuemintConnection = (Connection & { companyId: string | null }) | null;
 
 export default function ConfiguracionPage() {
@@ -28,12 +27,11 @@ export default function ConfiguracionPage() {
     rut: "",
     cashBalance: "0",
     cashBalanceDate: "",
-    defaultPurchaseTermDays: "30",
   });
   const [savingOrg, setSavingOrg] = useState(false);
 
-  const [siiConnection, setSiiConnection] = useState<SiiConnection>(null);
-  const [siiModalOpen, setSiiModalOpen] = useState(false);
+  const [nuboxConnection, setNuboxConnection] = useState<NuboxConnection>(null);
+  const [nuboxModalOpen, setNuboxModalOpen] = useState(false);
 
   const [duemintConnection, setDuemintConnection] = useState<DuemintConnection>(null);
   const [duemintModalOpen, setDuemintModalOpen] = useState(false);
@@ -48,15 +46,14 @@ export default function ConfiguracionPage() {
           rut: data.rut ?? "",
           cashBalance: String(data.cashBalance),
           cashBalanceDate: data.cashBalanceDate.slice(0, 10),
-          defaultPurchaseTermDays: String(data.defaultPurchaseTermDays ?? 30),
         });
       });
   }
 
-  function loadSii() {
-    fetch("/api/sii/connection")
+  function loadNubox() {
+    fetch("/api/nubox/connection")
       .then((r) => r.json())
-      .then(setSiiConnection);
+      .then(setNuboxConnection);
   }
 
   function loadDuemint() {
@@ -67,7 +64,7 @@ export default function ConfiguracionPage() {
 
   useEffect(() => {
     loadOrg();
-    loadSii();
+    loadNubox();
     loadDuemint();
   }, []);
 
@@ -88,7 +85,7 @@ export default function ConfiguracionPage() {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-brand">Configuración</h1>
-        <p className="text-sm text-slate-500">Datos de la empresa y conexiones con SII y Duemint.</p>
+        <p className="text-sm text-slate-500">Datos de la empresa y conexiones con Nubox y Duemint.</p>
       </div>
 
       <form onSubmit={saveOrg} className="card space-y-4">
@@ -129,57 +126,38 @@ export default function ConfiguracionPage() {
             />
           </div>
         </div>
-        <div>
-          <label className="label">Plazo de pago por defecto para compras (días)</label>
-          <input
-            className="input max-w-[140px]"
-            type="number"
-            min={0}
-            value={orgForm.defaultPurchaseTermDays}
-            onChange={(e) => setOrgForm({ ...orgForm, defaultPurchaseTermDays: e.target.value })}
-          />
-          <p className="text-xs text-slate-400 mt-1">
-            El SII nunca informa el plazo de pago real de una compra (es un acuerdo con el proveedor, no
-            un dato tributario), así que se estima sumando este plazo a la fecha de emisión. Configura un
-            plazo específico por proveedor en{" "}
-            <a href="/proveedores" className="underline text-brand">
-              Proveedores
-            </a>
-            .
-          </p>
-        </div>
         <button type="submit" className="btn-primary" disabled={savingOrg}>
           {savingOrg ? "Guardando..." : "Guardar"}
         </button>
       </form>
 
       <ConnectionCard
-        title="Conexión con el SII (compras / egresos)"
-        status={siiConnection?.status}
-        lastSyncedAt={siiConnection?.lastSyncedAt}
-        lastError={siiConnection?.lastError}
-        syncEndpoint="/api/sii/sync"
-        syncLabel="Sincronizar SII"
-        onOpenConfig={() => setSiiModalOpen(true)}
+        title="Conexión con Nubox (compras y ventas)"
+        status={nuboxConnection?.status}
+        lastSyncedAt={nuboxConnection?.lastSyncedAt}
+        lastError={nuboxConnection?.lastError}
+        syncEndpoint="/api/nubox/sync"
+        syncLabel="Sincronizar Nubox"
+        onOpenConfig={() => setNuboxModalOpen(true)}
       />
 
       <ConnectionCard
-        title="Conexión con Duemint (ventas / cobros)"
+        title="Conexión con Duemint (opcional: solo estado de pago de ventas)"
         status={duemintConnection?.status}
         lastSyncedAt={duemintConnection?.lastSyncedAt}
         lastError={duemintConnection?.lastError}
         syncEndpoint="/api/duemint/sync"
-        syncLabel="Sincronizar Duemint"
+        syncLabel="Actualizar estado de pago"
         onOpenConfig={() => setDuemintModalOpen(true)}
       />
 
-      {siiModalOpen && (
-        <SiiConfigModal
-          initialRut={siiConnection?.rut ?? ""}
-          onClose={() => setSiiModalOpen(false)}
+      {nuboxModalOpen && (
+        <NuboxConfigModal
+          initialCompanyId={nuboxConnection?.companyId ?? ""}
+          onClose={() => setNuboxModalOpen(false)}
           onSaved={() => {
-            loadSii();
-            setSiiModalOpen(false);
+            loadNubox();
+            setNuboxModalOpen(false);
           }}
         />
       )}
@@ -198,16 +176,16 @@ export default function ConfiguracionPage() {
   );
 }
 
-function SiiConfigModal({
-  initialRut,
+function NuboxConfigModal({
+  initialCompanyId,
   onClose,
   onSaved,
 }: {
-  initialRut: string;
+  initialCompanyId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState({ rut: initialRut, claveTributaria: "" });
+  const [form, setForm] = useState({ apiToken: "", companyId: initialCompanyId });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -215,7 +193,7 @@ function SiiConfigModal({
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const res = await fetch("/api/sii/connection", {
+    const res = await fetch("/api/nubox/connection", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
@@ -230,30 +208,29 @@ function SiiConfigModal({
   }
 
   return (
-    <Modal title="Conexión con el SII" onClose={onClose}>
+    <Modal title="Conexión con Nubox" onClose={onClose}>
       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-        Se guarda tu Clave Tributaria para consultar el Registro de Compras y Venta. Es la misma
-        contraseña de tu portal en sii.cl — trátala como una credencial sensible.
+        Nubox es la fuente principal de facturas: trae compras y ventas con su fecha de vencimiento
+        real. Usa un token de API de tu cuenta Nubox, no tu contraseña de acceso al portal.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="label">RUT empresa</label>
-          <input
-            className="input"
-            required
-            placeholder="76.123.456-7"
-            value={form.rut}
-            onChange={(e) => setForm({ ...form, rut: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="label">Clave Tributaria</label>
+          <label className="label">API Token</label>
           <input
             className="input"
             type="password"
             required
-            value={form.claveTributaria}
-            onChange={(e) => setForm({ ...form, claveTributaria: e.target.value })}
+            value={form.apiToken}
+            onChange={(e) => setForm({ ...form, apiToken: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="label">Company ID</label>
+          <input
+            className="input"
+            required
+            value={form.companyId}
+            onChange={(e) => setForm({ ...form, companyId: e.target.value })}
           />
         </div>
         {error && (
@@ -307,6 +284,10 @@ function DuemintConfigModal({
 
   return (
     <Modal title="Conexión con Duemint" onClose={onClose}>
+      <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2">
+        Opcional. Solo actualiza el estado de pago (pagada / pendiente / vencida) de las facturas de
+        venta que ya se sincronizaron desde Nubox, emparejándolas por folio.
+      </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="label">API Token</label>

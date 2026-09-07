@@ -27,8 +27,7 @@ function formatDate(d: string) {
 }
 
 function sourceLabel(source: string) {
-  if (source === "SII") return "SII";
-  if (source === "DUEMINT") return "Duemint";
+  if (source === "NUBOX") return "Nubox";
   return "Manual";
 }
 
@@ -39,7 +38,7 @@ type Tab = "SALE" | "PURCHASE";
 export default function FacturasPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [siiConnection, setSiiConnection] = useState<Connection>(null);
+  const [nuboxConnection, setNuboxConnection] = useState<Connection>(null);
   const [duemintConnection, setDuemintConnection] = useState<Connection>(null);
 
   const [activeTab, setActiveTab] = useState<Tab>("SALE");
@@ -57,9 +56,9 @@ export default function FacturasPage() {
 
   useEffect(() => {
     loadInvoices();
-    fetch("/api/sii/connection")
+    fetch("/api/nubox/connection")
       .then((r) => r.json())
-      .then(setSiiConnection);
+      .then(setNuboxConnection);
     fetch("/api/duemint/connection")
       .then((r) => r.json())
       .then(setDuemintConnection);
@@ -80,27 +79,23 @@ export default function FacturasPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand">Facturas</h1>
           <p className="text-sm text-slate-500">
-            Egresos (compras) desde el SII e ingresos (ventas + estado de pago) desde Duemint.
+            Compras y ventas desde Nubox. Duemint (opcional) solo actualiza el estado de pago de las
+            ventas.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <SyncButton endpoint="/api/sii/sync" label="Sincronizar SII (compras)" onSynced={loadInvoices} />
-          <SyncButton endpoint="/api/duemint/sync" label="Sincronizar Duemint (ventas)" onSynced={loadInvoices} />
+          <SyncButton endpoint="/api/nubox/sync" label="Sincronizar Nubox" onSynced={loadInvoices} />
+          <SyncButton
+            endpoint="/api/duemint/sync"
+            label="Actualizar estado de pago (Duemint)"
+            onSynced={loadInvoices}
+          />
         </div>
       </div>
 
-      {siiConnection && siiConnection.status !== "CONNECTED" && (
+      {nuboxConnection && nuboxConnection.status !== "CONNECTED" && (
         <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
-          Aún no configuras la conexión con el SII. Ve a{" "}
-          <a href="/configuracion" className="underline font-medium">
-            Configuración
-          </a>{" "}
-          para ingresar tu RUT y Clave Tributaria.
-        </div>
-      )}
-      {duemintConnection && duemintConnection.status !== "CONNECTED" && (
-        <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
-          Aún no configuras la conexión con Duemint. Ve a{" "}
+          Aún no configuras la conexión con Nubox. Ve a{" "}
           <a href="/configuracion" className="underline font-medium">
             Configuración
           </a>{" "}
@@ -174,8 +169,8 @@ export default function FacturasPage() {
               <tr>
                 <td colSpan={7} className="text-center text-slate-400 py-8">
                   {activeTab === "SALE"
-                    ? "No hay facturas de venta todavía. Sincroniza con Duemint."
-                    : "No hay facturas de compra todavía. Sincroniza con el SII."}
+                    ? "No hay facturas de venta todavía. Sincroniza con Nubox."
+                    : "No hay facturas de compra todavía. Sincroniza con Nubox."}
                 </td>
               </tr>
             )}
