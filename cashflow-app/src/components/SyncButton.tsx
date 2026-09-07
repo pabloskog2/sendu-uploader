@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 export default function SyncButton({
   endpoint,
   label,
+  onSynced,
 }: {
   endpoint: string;
   label: string;
+  onSynced?: () => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -25,6 +27,7 @@ export default function SyncButton({
       } else {
         setMessage(`✔ ${data.invoicesSynced} facturas sincronizadas`);
         router.refresh();
+        onSynced?.();
       }
     } catch {
       setMessage("❌ Error de conexión");

@@ -1,13 +1,28 @@
-import { prisma } from "@/lib/prisma";
-import { getCurrentSession } from "@/lib/session";
-import { formatCLP, INVOICE_STATUSES, INVOICE_TYPES } from "@/lib/constants";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { formatCLP, INVOICE_STATUSES } from "@/lib/constants";
 import SyncButton from "@/components/SyncButton";
+
+type Invoice = {
+  id: string;
+  type: "SALE" | "PURCHASE";
+  source: string;
+  folio: string | null;
+  counterpartName: string | null;
+  issueDate: string;
+  dueDate: string;
+  status: string;
+  totalAmount: number;
+};
+
+type Connection = { status: "DISCONNECTED" | "CONNECTED" | "ERROR" } | null;
 
 function labelFor(list: readonly { value: string; label: string }[], value: string) {
   return list.find((i) => i.value === value)?.label ?? value;
 }
 
-function formatDate(d: Date) {
+function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
@@ -17,16 +32,47 @@ function sourceLabel(source: string) {
   return "Manual";
 }
 
-export default async function FacturasPage() {
-  const session = await getCurrentSession();
-  const [invoices, siiConnection, duemintConnection] = await Promise.all([
-    prisma.invoice.findMany({
-      where: { organizationId: session!.organizationId },
-      orderBy: { dueDate: "asc" },
-    }),
-    prisma.siiConnection.findUnique({ where: { organizationId: session!.organizationId } }),
-    prisma.duemintConnection.findUnique({ where: { organizationId: session!.organizationId } }),
-  ]);
+type SortField = "dueDate" | "issueDate";
+type SortDirection = "desc" | "asc";
+type Tab = "SALE" | "PURCHASE";
+
+export default function FacturasPage() {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [siiConnection, setSiiConnection] = useState<Connection>(null);
+  const [duemintConnection, setDuemintConnection] = useState<Connection>(null);
+
+  const [activeTab, setActiveTab] = useState<Tab>("SALE");
+  const [sortField, setSortField] = useState<SortField>("dueDate");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+  function loadInvoices() {
+    fetch("/api/invoices")
+      .then((r) => r.json())
+      .then((data: Invoice[]) => {
+        setInvoices(data);
+        setLoading(false);
+      });
+  }
+
+  useEffect(() => {
+    loadInvoices();
+    fetch("/api/sii/connection")
+      .then((r) => r.json())
+      .then(setSiiConnection);
+    fetch("/api/duemint/connection")
+      .then((r) => r.json())
+      .then(setDuemintConnection);
+  }, []);
+
+  const rows = useMemo(() => {
+    const filtered = invoices.filter((inv) => inv.type === activeTab);
+    const sorted = [...filtered].sort((a, b) => {
+      const diff = new Date(a[sortField]).getTime() - new Date(b[sortField]).getTime();
+      return sortDirection === "desc" ? -diff : diff;
+    });
+    return sorted;
+  }, [invoices, activeTab, sortField, sortDirection]);
 
   return (
     <div className="space-y-6">
@@ -38,12 +84,12 @@ export default async function FacturasPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <SyncButton endpoint="/api/sii/sync" label="Sincronizar SII (compras)" />
-          <SyncButton endpoint="/api/duemint/sync" label="Sincronizar Duemint (ventas)" />
+          <SyncButton endpoint="/api/sii/sync" label="Sincronizar SII (compras)" onSynced={loadInvoices} />
+          <SyncButton endpoint="/api/duemint/sync" label="Sincronizar Duemint (ventas)" onSynced={loadInvoices} />
         </div>
       </div>
 
-      {!siiConnection?.rut && (
+      {siiConnection && siiConnection.status !== "CONNECTED" && (
         <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
           Aún no configuras la conexión con el SII. Ve a{" "}
           <a href="/configuracion" className="underline font-medium">
@@ -52,7 +98,7 @@ export default async function FacturasPage() {
           para ingresar tu RUT y Clave Tributaria.
         </div>
       )}
-      {!duemintConnection?.apiToken && (
+      {duemintConnection && duemintConnection.status !== "CONNECTED" && (
         <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
           Aún no configuras la conexión con Duemint. Ve a{" "}
           <a href="/configuracion" className="underline font-medium">
@@ -62,11 +108,47 @@ export default async function FacturasPage() {
         </div>
       )}
 
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-2">
+          <button
+            className={activeTab === "SALE" ? "btn-primary" : "btn-secondary"}
+            onClick={() => setActiveTab("SALE")}
+          >
+            Ventas
+          </button>
+          <button
+            className={activeTab === "PURCHASE" ? "btn-primary" : "btn-secondary"}
+            onClick={() => setActiveTab("PURCHASE")}
+          >
+            Compras
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm">
+          <label className="text-slate-500">Ordenar por</label>
+          <select
+            className="input py-1"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as SortField)}
+          >
+            <option value="dueDate">Fecha de vencimiento</option>
+            <option value="issueDate">Fecha de emisión</option>
+          </select>
+          <select
+            className="input py-1"
+            value={sortDirection}
+            onChange={(e) => setSortDirection(e.target.value as SortDirection)}
+          >
+            <option value="desc">Más futura primero</option>
+            <option value="asc">Más antigua primero</option>
+          </select>
+        </div>
+      </div>
+
       <div className="card overflow-x-auto">
         <table className="table-base">
           <thead>
             <tr>
-              <th>Tipo</th>
               <th>Fuente</th>
               <th>Folio</th>
               <th>Contraparte</th>
@@ -77,11 +159,8 @@ export default async function FacturasPage() {
             </tr>
           </thead>
           <tbody>
-            {invoices.map((inv) => (
+            {rows.map((inv) => (
               <tr key={inv.id}>
-                <td className={inv.type === "SALE" ? "text-income" : "text-expense"}>
-                  {labelFor(INVOICE_TYPES, inv.type)}
-                </td>
                 <td className="text-slate-500">{sourceLabel(inv.source)}</td>
                 <td>{inv.folio ?? "-"}</td>
                 <td>{inv.counterpartName ?? "-"}</td>
@@ -91,10 +170,12 @@ export default async function FacturasPage() {
                 <td className="text-right font-medium">{formatCLP(inv.totalAmount)}</td>
               </tr>
             ))}
-            {invoices.length === 0 && (
+            {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center text-slate-400 py-8">
-                  No hay facturas todavía. Sincroniza con el SII y/o Duemint.
+                <td colSpan={7} className="text-center text-slate-400 py-8">
+                  {activeTab === "SALE"
+                    ? "No hay facturas de venta todavía. Sincroniza con Duemint."
+                    : "No hay facturas de compra todavía. Sincroniza con el SII."}
                 </td>
               </tr>
             )}
