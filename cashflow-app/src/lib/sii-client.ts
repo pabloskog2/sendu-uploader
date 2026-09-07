@@ -22,15 +22,18 @@
  *
  * 1. Usa un navegador headless (Playwright) para iniciar sesión con RUT +
  *    Clave Tributaria en el formulario real de `zeusr.sii.cl` — necesario
- *    porque el POST de login no quedó capturado en ninguna de las 2
- *    capturas (ambas empezaron con la sesión ya iniciada), así que en vez
- *    de adivinar los parámetros del formulario, se automatiza la sesión
- *    real del navegador tal como la usaría una persona.
- *    **Sin verificar contra el DOM real**: los selectores (`getByLabel`,
- *    etc.) están hechos a partir de una captura de pantalla, no del HTML.
- *    Si el SII cambia el formulario, esto es lo primero que hay que
- *    revisar. Un solo intento de login, nunca reintentar automáticamente
- *    (ver riesgos de bloqueo de cuenta en el README).
+ *    porque el POST de login no quedó capturado en ninguna de las capturas
+ *    HAR (todas empezaron con la sesión ya iniciada), así que en vez de
+ *    adivinar los parámetros del POST, se automatiza la sesión real del
+ *    navegador tal como la usaría una persona.
+ *    Selectores **confirmados inspeccionando el HTML real** del formulario
+ *    (`#myform` → `#rutcntr`, `#clave`, `#bt_ingresar`): el campo RUT
+ *    acepta el valor ya formateado con puntos y guion (ej. "76.886.019-K",
+ *    su `maxlength="12"` calza exacto con ese formato — ver
+ *    `formatRutWithDots()`). Aun así, un solo intento de login, nunca
+ *    reintentar automáticamente (ver riesgos de bloqueo de cuenta en el
+ *    README) — el flujo de login en sí sigue sin poder probarse en vivo
+ *    desde este entorno (sin salida de red hacia sii.cl).
  * 2. Una vez logueado, hace las llamadas JSON reales **dentro de la página**
  *    (`page.evaluate(fetch(...))`) para que viajen con las mismas cookies,
  *    headers y origen que usaría el navegador — evita tener que replicar
@@ -53,7 +56,9 @@
  *
  * Pendiente de verificar (no se pudo probar en vivo, este entorno no tiene
  * salida de red hacia sii.cl):
- * - Los selectores del formulario de login (ver punto 1).
+ * - El flujo de login completo con credenciales reales — los selectores
+ *   están confirmados contra el HTML, pero nadie lo ha corrido de punta a
+ *   punta contra el sitio real todavía.
  * - El valor `tokenRecaptcha: "t-o-k-e-n-web"` es literal — así vino en
  *   ambas capturas y funcionó (`codRespuesta: 0`), pero no hay forma de
  *   saber si el SII realmente no valida ese campo en este endpoint o si
@@ -99,10 +104,23 @@ function splitRut(rut: string): { rutNumerico: string; dv: string } {
   return { rutNumerico: normalized.slice(0, -1), dv: normalized.slice(-1) };
 }
 
-/** El formulario de login espera "12345678-9", visto así en una captura real. */
-function formatRutForLogin(rut: string): string {
+/**
+ * El campo #rutcntr del login acepta el RUT ya formateado con puntos y
+ * guion (ej. "76.886.019-K", confirmado inspeccionando el HTML real del
+ * formulario) — su maxlength=12 calza exacto con ese formato.
+ */
+function formatRutWithDots(rut: string): string {
   const normalized = normalizeRut(rut);
-  return `${normalized.slice(0, -1)}-${normalized.slice(-1)}`.toLowerCase();
+  const dv = normalized.slice(-1);
+  const body = normalized.slice(0, -1);
+  let formatted = "";
+  let count = 0;
+  for (let i = body.length - 1; i >= 0; i--) {
+    formatted = body[i] + formatted;
+    count++;
+    if (count % 3 === 0 && i !== 0) formatted = "." + formatted;
+  }
+  return `${formatted}-${dv}`;
 }
 
 function newConversationId(): string {
@@ -181,15 +199,11 @@ export class SiiRcvClient implements SiiClient {
 
       await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
 
-      const rutInput = page.getByLabel(/^rut$/i).or(page.locator('input[type="text"]').first());
-      const claveInput = page
-        .getByLabel(/clave tributaria/i)
-        .or(page.locator('input[type="password"]').first());
-      const submitButton = page.getByRole("button", { name: /ingresar/i });
-
-      await rutInput.fill(formatRutForLogin(this.credentials.rut));
-      await claveInput.fill(this.credentials.claveTributaria);
-      await submitButton.click();
+      // Selectores confirmados inspeccionando el HTML real del formulario
+      // (#rutcntr / #clave / #bt_ingresar dentro de #myform).
+      await page.fill("#rutcntr", formatRutWithDots(this.credentials.rut));
+      await page.fill("#clave", this.credentials.claveTributaria);
+      await page.click("#bt_ingresar");
 
       // Un solo intento: si no redirige a misiir.sii.cl, es login inválido
       // (o el SII cambió el formulario) — no reintentar automáticamente.
