@@ -261,8 +261,17 @@ export class SiiRcvClient implements SiiClient {
             estadoContab,
           };
 
+          // Pausa entre llamadas: 14 requests seguidas (7 meses x 2 estados)
+          // sin pausa no se parece en nada al ritmo de un humano navegando
+          // la UI, y es exactamente el patrón que un sistema anti-bot
+          // detecta — probablemente por esto se ve 0 resultados sin error.
+          await page.waitForTimeout(700 + Math.floor(Math.random() * 600));
+
           // Replica el paso que hace la UI real antes de exportar.
-          await evaluatePost(page, `${FACADE_URL}/getResumen`, {
+          const resumenRes = await evaluatePost<{
+            totDocRes?: number;
+            respEstado?: { codRespuesta?: number; msgeRespuesta?: string | null };
+          }>(page, `${FACADE_URL}/getResumen`, {
             metaData: {
               namespace: NS_GET_RESUMEN,
               conversationId,
@@ -272,22 +281,34 @@ export class SiiRcvClient implements SiiClient {
             data: estadoContab === "REGISTRO" ? { ...baseData, busquedaInicial: true } : baseData,
           });
 
-          const exportRes = await evaluatePost<{ data?: string[] }>(
-            page,
-            `${FACADE_URL}/getDetalleCompraExport`,
-            {
-              metaData: {
-                namespace: NS_GET_DETALLE_COMPRA_EXPORT,
-                conversationId,
-                transactionId: randomUUID(),
-                page: null,
-              },
-              data: { ...baseData, codTipoDoc: 0, accionRecaptcha: "RCV_DDETC", tokenRecaptcha: "t-o-k-e-n-web" },
-            }
-          );
+          await page.waitForTimeout(400 + Math.floor(Math.random() * 400));
+
+          const exportRes = await evaluatePost<{
+            data?: string[];
+            respEstado?: { codRespuesta?: number; msgeRespuesta?: string | null };
+          }>(page, `${FACADE_URL}/getDetalleCompraExport`, {
+            metaData: {
+              namespace: NS_GET_DETALLE_COMPRA_EXPORT,
+              conversationId,
+              transactionId: randomUUID(),
+              page: null,
+            },
+            data: { ...baseData, codTipoDoc: 0, accionRecaptcha: "RCV_DDETC", tokenRecaptcha: "t-o-k-e-n-web" },
+          });
 
           const rows = exportRes.data ?? [];
           const records = parseSemicolonCsv(rows);
+
+          // Log de diagnóstico (aparece en la consola donde corre `npm run
+          // dev`/el server) — clave para depurar por qué un período/estado
+          // no trae filas, sin exponer nada sensible.
+          console.log(
+            `[SII ${ptributario} ${estadoContab}] resumen.totDocRes=${resumenRes.totDocRes ?? "?"} ` +
+              `resumen.respEstado=${JSON.stringify(resumenRes.respEstado)} ` +
+              `export.respEstado=${JSON.stringify(exportRes.respEstado)} ` +
+              `export.filas=${records.length}`
+          );
+
           for (const record of records) {
             invoices.push(mapSiiPurchaseRecord(record, estadoContab, ptributario));
           }
