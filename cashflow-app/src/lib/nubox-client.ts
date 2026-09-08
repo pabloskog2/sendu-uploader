@@ -1,12 +1,13 @@
 /**
  * Cliente de integración con el facturador de la empresa (piloto: Nubox).
  *
- * A diferencia del SII (que nunca informa fecha de vencimiento ni si una
- * compra es al contado o a crédito) o de Duemint (que solo ve las ventas
- * que la empresa emite), el facturador es donde vive el documento completo
- * en ambos sentidos: compras recibidas y ventas emitidas, cada una con su
- * fecha de vencimiento real, porque es el sistema donde la empresa emite y
- * registra sus DTEs.
+ * A diferencia de Duemint (que solo ve las ventas que la empresa emite), el
+ * facturador es donde vive el documento completo en ambos sentidos: compras
+ * recibidas y ventas emitidas. Aun así, el vencimiento no siempre viene en
+ * el documento — sobre todo en compras, donde no es un dato tributario sino
+ * un acuerdo comercial con el proveedor que puede no estar en el DTE. Por
+ * eso `dueDate` puede venir `null`: `src/lib/payment-terms.ts` lo resuelve
+ * con el plazo de pago configurado (por RUT o por defecto).
  *
  * IMPORTANTE — sin validar contra la API real todavía: no se cuenta con
  * documentación ni credenciales de la API de Nubox en este momento, así
@@ -41,7 +42,7 @@ type NuboxDocument = {
   documentType: string; // código DTE del SII, ej: 33 = factura electrónica
   folio: string;
   issueDate: string;
-  dueDate: string;
+  dueDate: string | null;
   paid: boolean;
   paidDate: string | null;
   net: number;
@@ -64,11 +65,11 @@ function toDateParam(d: Date): string {
 }
 
 function mapNuboxDocument(doc: NuboxDocument): NormalizedInvoice {
-  const dueDate = new Date(doc.dueDate);
+  const dueDate = doc.dueDate ? new Date(doc.dueDate) : null;
   let status: NormalizedInvoice["status"] = "PENDING";
   if (doc.paid) {
     status = "PAID";
-  } else if (dueDate.getTime() < Date.now()) {
+  } else if (dueDate && dueDate.getTime() < Date.now()) {
     status = "OVERDUE";
   }
 
@@ -152,7 +153,16 @@ export class NuboxApiClient implements NuboxClient {
   }
 }
 
-/** Cliente de demostración: genera ventas y compras de ejemplo con fecha de vencimiento real. */
+const MOCK_CLIENT_RUTS = ["76.555.444-3", "76.555.445-1", "76.555.446-K", "76.555.447-8", "76.555.448-6"];
+const MOCK_SUPPLIER_RUTS = ["77.111.222-3", "77.111.223-1", "77.111.224-K", "77.111.225-8"];
+
+/**
+ * Cliente de demostración: genera ventas y compras de ejemplo. Las ventas
+ * siempre traen vencimiento (así emite Nubox sus propios DTE); las compras
+ * la mayoría de las veces NO lo traen, para ejercitar la resolución por
+ * plazo de pago (ver src/lib/payment-terms.ts) igual que pasaría con datos
+ * reales.
+ */
 export class MockNuboxClient implements NuboxClient {
   async testConnection(): Promise<{ ok: boolean; message?: string }> {
     return { ok: true, message: "Conexión simulada (NUBOX_MODE=mock)" };
@@ -166,6 +176,8 @@ export class MockNuboxClient implements NuboxClient {
 
     for (let i = 0; i <= totalDays; i += 6) {
       const issueDate = new Date(range.from.getTime() + i * oneDay);
+      const clientIdx = (i / 6) % MOCK_CLIENT_RUTS.length;
+      const supplierIdx = (i / 6) % MOCK_SUPPLIER_RUTS.length;
 
       const saleDue = new Date(issueDate.getTime() + 10 * oneDay);
       const saleAmount = 500_000 + ((i * 41) % 10) * 120_000;
@@ -181,29 +193,32 @@ export class MockNuboxClient implements NuboxClient {
         netAmount: Math.round(saleAmount / 1.19),
         taxAmount: Math.round(saleAmount - saleAmount / 1.19),
         totalAmount: saleAmount,
-        counterpartName: `Cliente demo ${(i % 5) + 1}`,
-        counterpartRut: "76.555.444-3",
+        counterpartName: `Cliente demo ${clientIdx + 1}`,
+        counterpartRut: MOCK_CLIENT_RUTS[clientIdx],
         folio: `${9000 + i}`,
         currency: "CLP",
         raw: { mock: true },
       });
 
-      const purchaseDue = new Date(issueDate.getTime() + 30 * oneDay);
+      // 1 de cada 4 compras sí trae vencimiento propio; el resto queda en
+      // null a propósito, para que se resuelva por plazo de pago.
+      const purchaseHasDueDate = supplierIdx === 0;
+      const purchaseDue = purchaseHasDueDate ? new Date(issueDate.getTime() + 30 * oneDay) : null;
       const purchaseAmount = 300_000 + ((i * 67) % 10) * 90_000;
-      const purchasePaid = purchaseDue < today;
+      const purchasePaid = purchaseHasDueDate && purchaseDue! < today;
       invoices.push({
         externalId: `mock-nubox-purchase-${issueDate.toISOString().slice(0, 10)}`,
         type: "PURCHASE",
         documentType: "33",
-        status: purchasePaid ? "PAID" : purchaseDue < today ? "OVERDUE" : "PENDING",
+        status: purchasePaid ? "PAID" : purchaseDue && purchaseDue < today ? "OVERDUE" : "PENDING",
         issueDate,
         dueDate: purchaseDue,
         paidDate: purchasePaid ? purchaseDue : null,
         netAmount: Math.round(purchaseAmount / 1.19),
         taxAmount: Math.round(purchaseAmount - purchaseAmount / 1.19),
         totalAmount: purchaseAmount,
-        counterpartName: `Proveedor demo ${(i % 4) + 1}`,
-        counterpartRut: "77.111.222-3",
+        counterpartName: `Proveedor demo ${supplierIdx + 1}`,
+        counterpartRut: MOCK_SUPPLIER_RUTS[supplierIdx],
         folio: `${5000 + i}`,
         currency: "CLP",
         raw: { mock: true },

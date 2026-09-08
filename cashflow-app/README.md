@@ -9,16 +9,22 @@ usuarios y datos).
 1. **Compras y ventas** desde el **facturador** de cada empresa (piloto con
    **Nubox**) — ver "Fuentes de datos" más abajo para el porqué del pivote
    desde el SII.
-2. **Pagos recurrentes**: gastos fijos no facturables (Previred, remuneraciones,
+2. **Plazos de pago**: cuando Nubox no trae fecha de vencimiento en un
+   documento (frecuente en compras), se resuelve con un plazo configurable
+   por RUT de la contraparte o, si no hay uno, un plazo genérico de la
+   empresa — ver "Resolución de vencimiento" más abajo.
+3. **Pagos recurrentes**: gastos fijos no facturables (Previred, remuneraciones,
    créditos bancarios, arriendos, seguros, etc.) o ingresos recurrentes,
    configurables por frecuencia (semanal, quincenal, mensual, anual).
-3. **Pagos únicos**: proyectos o pagos puntuales que no se repiten.
-4. **Ventas estimadas**: proyección comercial de ingresos futuros aún no
+4. **Pagos únicos**: proyectos o pagos puntuales que no se repiten.
+5. **Ventas estimadas**: proyección comercial de ingresos futuros aún no
    facturados, por mes.
-5. **Flujo de caja proyectado**: combina todo lo anterior día a día, desde el
+6. **Flujo de caja proyectado**: combina todo lo anterior día a día, desde el
    saldo de caja actual, para al menos 90 días hacia adelante (30/60/90/120
-   seleccionables), mostrando gráfico, saldo mínimo proyectado y desglose
-   semanal.
+   seleccionables). Dos vistas: **Resumen** (gráfico, saldo mínimo proyectado
+   y desglose semanal) y **Cartola** (tabla día a día con el detalle por
+   fuente: CxC Duemint, CxC próximo mes, CxP Nubox, CxP manuales, saldo
+   diario).
 
 ## Fuentes de datos: por qué el facturador (Nubox) y no el SII
 
@@ -47,6 +53,27 @@ empresa cliente. Se abandonó ese enfoque:
   (pagada / pendiente / vencida) de facturas que ya existen (creadas desde
   Nubox), emparejándolas por folio. No crea facturas nuevas ni es necesario
   para que la app funcione.
+
+## Resolución de vencimiento cuando Nubox no lo trae
+
+"El facturador ya trae fecha de vencimiento real" no es 100% cierto: en
+compras, ese dato es un acuerdo comercial con el proveedor, no un dato
+tributario, así que el DTE puede no incluirlo — el mismo problema que
+existía con el SII, solo que ahora es la excepción y no la regla. Cuando
+`NuboxClient.fetchInvoices()` devuelve un documento con `dueDate: null`
+(compra o venta), `src/lib/payment-terms.ts` lo resuelve en este orden:
+
+1. La fecha de vencimiento del propio documento, si viene.
+2. El plazo configurado para el RUT de la contraparte
+   (`PaymentTerm`, página **Plazos de Pago**).
+3. El plazo genérico de la empresa (`Organization.defaultPaymentTermDays`,
+   Configuración — 30 días por defecto, editable).
+
+Un plazo de **0 días se interpreta como contado**: la factura se marca
+pagada de inmediato (`paidDate` = fecha de emisión) y no se proyecta como
+egreso/ingreso futuro. Esta resolución corre en `/api/nubox/sync`, antes de
+guardar el `Invoice`, así que el resto de la app (Facturas, flujo de caja)
+siempre ve un `dueDate` ya resuelto.
 
 ## Stack
 
@@ -91,14 +118,15 @@ Antes de activar `NUBOX_MODE=live`:
    método que se usó para confirmar Duemint y, antes, el SII.
 2. Ajustar `NUBOX_API_BASE_URL`, los paths de `nubox-client.ts` y
    `mapNuboxDocument()` a la forma real de la respuesta.
-3. Confirmar los nombres de campo para fecha de vencimiento y estado de pago
-   de compras — es lo que reemplaza la estimación que antes hacía
-   `purchase-terms.ts` con el SII, y ahora debería venir directo del
-   facturador.
+3. Confirmar los nombres de campo para fecha de vencimiento y estado de pago,
+   y en qué casos reales viene `null` — eso decide qué tan seguido entra en
+   juego la resolución por plazo de pago de `src/lib/payment-terms.ts` (ver
+   sección arriba).
 
 Mientras tanto, `NUBOX_MODE=mock` (default) permite construir y probar el
-resto de la app (UI, sync, flujo de caja) con datos de ejemplo realistas de
-compras y ventas con vencimiento real.
+resto de la app (UI, sync, flujo de caja) con datos de ejemplo realistas:
+ventas con vencimiento real y compras que en su mayoría no lo traen, para
+ejercitar la resolución por plazo de pago igual que pasaría en producción.
 
 ## Integración con Duemint — ya implementada, con rol acotado a estado de pago
 
@@ -125,11 +153,15 @@ confirmado.
 ## Modelo de datos (multi-empresa)
 
 - `Organization`: una empresa cliente de Sendu (o Sendu misma). Tiene su
-  saldo de caja actual (`cashBalance` / `cashBalanceDate`) como punto de
-  partida de la proyección.
+  saldo de caja actual (`cashBalance` / `cashBalanceDate`) y el plazo de
+  pago genérico (`defaultPaymentTermDays`) como puntos de partida de la
+  proyección.
 - `User` + `Membership`: permite que un usuario pertenezca a una o más
   empresas, y que cada empresa venda el producto de forma independiente.
 - `Invoice`: facturas normalizadas, con `source` = `NUBOX` | `MANUAL`.
+- `PaymentTerm`: plazo de pago (días) por RUT de contraparte; `0` = contado.
+  Tiene prioridad sobre `defaultPaymentTermDays` — ver "Resolución de
+  vencimiento" arriba.
 - `RecurringPayment`, `OneTimePayment`, `EstimatedSale`: las tres fuentes de
   proyección manual.
 - `NuboxConnection`, `DuemintConnection`, `SyncLog`: credenciales y
@@ -149,6 +181,12 @@ confirmado.
 - El saldo corriente parte del saldo de caja configurado en Configuración y
   se acumula día a día, reportando además el saldo mínimo proyectado (para
   alertar de posibles déficits).
+
+El Dashboard muestra esta proyección en dos vistas: **Resumen** (gráfico +
+desglose semanal) y **Cartola** (la tabla día a día de `projection.days`
+sin agrupar, con columnas CxC Duemint / CxC próximo mes / CxP Nubox / CxP
+manuales / Saldo diario — mismo dato, desglosado por fuente en vez de por
+semana).
 
 ## Pendiente / siguientes pasos sugeridos
 

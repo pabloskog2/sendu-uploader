@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Flujo de Caja", icon: "💰" },
   { href: "/facturas", label: "Facturas (Nubox)", icon: "📄" },
+  { href: "/plazos-de-pago", label: "Plazos de Pago", icon: "🗓️" },
   { href: "/pagos-recurrentes", label: "Pagos Recurrentes", icon: "🔁" },
   { href: "/ventas-estimadas", label: "Ventas Estimadas", icon: "📈" },
   { href: "/configuracion", label: "Configuración", icon: "⚙️" },

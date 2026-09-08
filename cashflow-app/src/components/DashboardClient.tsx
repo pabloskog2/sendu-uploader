@@ -1,11 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { formatCLP } from "@/lib/constants";
 import CashflowChart from "@/components/CashflowChart";
 import type { CashflowProjection } from "@/lib/cashflow-engine";
 
 const HORIZONS = [30, 60, 90, 120];
+const TABS = [
+  { value: "resumen", label: "Resumen" },
+  { value: "cartola", label: "Cartola" },
+] as const;
+type Tab = (typeof TABS)[number]["value"];
 
 function formatDate(iso: string) {
   return new Date(iso + "T00:00:00").toLocaleDateString("es-CL", {
@@ -42,6 +48,7 @@ export default function DashboardClient({
   projection: CashflowProjection;
   horizon: number;
 }) {
+  const [tab, setTab] = useState<Tab>("resumen");
   const weeks = groupByWeek(projection.days);
   const { totals } = projection;
 
@@ -54,80 +61,132 @@ export default function DashboardClient({
             Saldo inicial {formatCLP(projection.startingBalance)} al {formatDate(projection.startingBalanceDate)}
           </p>
         </div>
-        <div className="flex gap-2">
-          {HORIZONS.map((h) => (
-            <Link
-              key={h}
-              href={`/dashboard?horizon=${h}`}
-              className={`px-3 py-1.5 rounded-lg text-sm border ${
-                h === horizon
-                  ? "bg-brand text-white border-brand"
-                  : "bg-white text-brand border-slate-200 hover:border-brand"
-              }`}
-            >
-              {h} días
-            </Link>
-          ))}
-        </div>
+        {tab === "resumen" && (
+          <div className="flex gap-2">
+            {HORIZONS.map((h) => (
+              <Link
+                key={h}
+                href={`/dashboard?horizon=${h}`}
+                className={`px-3 py-1.5 rounded-lg text-sm border ${
+                  h === horizon
+                    ? "bg-brand text-white border-brand"
+                    : "bg-white text-brand border-slate-200 hover:border-brand"
+                }`}
+              >
+                {h} días
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <SummaryCard label="Saldo proyectado final" value={formatCLP(totals.endingBalance)} />
-        <SummaryCard
-          label="Saldo mínimo proyectado"
-          value={formatCLP(totals.lowestBalance)}
-          sub={formatDate(totals.lowestBalanceDate)}
-          negative={totals.lowestBalance < 0}
-        />
-        <SummaryCard
-          label="Ingresos facturados + estimados"
-          value={formatCLP(totals.invoiceIncome + totals.recurringIncome + totals.oneTimeIncome + totals.estimatedIncome)}
-        />
-        <SummaryCard
-          label="Egresos (facturas + recurrentes)"
-          value={formatCLP(totals.invoiceExpense + totals.recurringExpense + totals.oneTimeExpense)}
-        />
+      <div className="flex gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.value}
+            onClick={() => setTab(t.value)}
+            className={t.value === tab ? "btn-primary" : "btn-secondary"}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {totals.lowestBalance < 0 && (
-        <div className="card border-expense/40 bg-red-50 text-expense text-sm">
-          ⚠️ El saldo proyectado cae bajo cero el {formatDate(totals.lowestBalanceDate)}. Revisa tus pagos
-          recurrentes o adelanta cobros para cubrir el déficit.
+      {tab === "resumen" ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <SummaryCard label="Saldo proyectado final" value={formatCLP(totals.endingBalance)} />
+            <SummaryCard
+              label="Saldo mínimo proyectado"
+              value={formatCLP(totals.lowestBalance)}
+              sub={formatDate(totals.lowestBalanceDate)}
+              negative={totals.lowestBalance < 0}
+            />
+            <SummaryCard
+              label="Ingresos facturados + estimados"
+              value={formatCLP(
+                totals.invoiceIncome + totals.recurringIncome + totals.oneTimeIncome + totals.estimatedIncome
+              )}
+            />
+            <SummaryCard
+              label="Egresos (facturas + recurrentes)"
+              value={formatCLP(totals.invoiceExpense + totals.recurringExpense + totals.oneTimeExpense)}
+            />
+          </div>
+
+          {totals.lowestBalance < 0 && (
+            <div className="card border-expense/40 bg-red-50 text-expense text-sm">
+              ⚠️ El saldo proyectado cae bajo cero el {formatDate(totals.lowestBalanceDate)}. Revisa tus pagos
+              recurrentes o adelanta cobros para cubrir el déficit.
+            </div>
+          )}
+
+          <div className="card">
+            <h2 className="font-semibold text-slate-700 mb-4">Saldo proyectado ({horizon} días)</h2>
+            <CashflowChart days={projection.days} />
+          </div>
+
+          <div className="card overflow-x-auto">
+            <h2 className="font-semibold text-slate-700 mb-4">Desglose semanal</h2>
+            <table className="table-base">
+              <thead>
+                <tr>
+                  <th>Semana</th>
+                  <th>Ingresos</th>
+                  <th>Egresos</th>
+                  <th>Neto</th>
+                  <th>Saldo al cierre</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map((w) => (
+                  <tr key={w.label}>
+                    <td>{w.label}</td>
+                    <td className="text-income">{formatCLP(w.income)}</td>
+                    <td className="text-expense">{formatCLP(w.expense)}</td>
+                    <td className={w.net >= 0 ? "text-income" : "text-expense"}>{formatCLP(w.net)}</td>
+                    <td className={w.balance >= 0 ? "font-medium" : "font-medium text-expense"}>
+                      {formatCLP(w.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <div className="card overflow-x-auto">
+          <h2 className="font-semibold text-slate-700 mb-4">Cartola día a día ({horizon} días)</h2>
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th className="text-right">CxC Duemint</th>
+                <th className="text-right">CxC próximo mes</th>
+                <th className="text-right">CxP Nubox</th>
+                <th className="text-right">CxP manuales</th>
+                <th className="text-right">Saldo diario</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projection.days.map((d) => (
+                <tr key={d.date}>
+                  <td>{formatDate(d.date)}</td>
+                  <td className="text-right text-income">{formatCLP(d.invoiceIncome)}</td>
+                  <td className="text-right text-income">
+                    {formatCLP(d.estimatedIncome + d.recurringIncome + d.oneTimeIncome)}
+                  </td>
+                  <td className="text-right text-expense">{formatCLP(d.invoiceExpense)}</td>
+                  <td className="text-right text-expense">{formatCLP(d.recurringExpense + d.oneTimeExpense)}</td>
+                  <td className={d.balance >= 0 ? "text-right font-medium" : "text-right font-medium text-expense"}>
+                    {formatCLP(d.balance)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-
-      <div className="card">
-        <h2 className="font-semibold text-slate-700 mb-4">Saldo proyectado ({horizon} días)</h2>
-        <CashflowChart days={projection.days} />
-      </div>
-
-      <div className="card overflow-x-auto">
-        <h2 className="font-semibold text-slate-700 mb-4">Desglose semanal</h2>
-        <table className="table-base">
-          <thead>
-            <tr>
-              <th>Semana</th>
-              <th>Ingresos</th>
-              <th>Egresos</th>
-              <th>Neto</th>
-              <th>Saldo al cierre</th>
-            </tr>
-          </thead>
-          <tbody>
-            {weeks.map((w) => (
-              <tr key={w.label}>
-                <td>{w.label}</td>
-                <td className="text-income">{formatCLP(w.income)}</td>
-                <td className="text-expense">{formatCLP(w.expense)}</td>
-                <td className={w.net >= 0 ? "text-income" : "text-expense"}>{formatCLP(w.net)}</td>
-                <td className={w.balance >= 0 ? "font-medium" : "font-medium text-expense"}>
-                  {formatCLP(w.balance)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

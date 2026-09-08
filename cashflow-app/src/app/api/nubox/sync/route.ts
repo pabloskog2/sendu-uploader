@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentSession } from "@/lib/session";
 import { getNuboxClient } from "@/lib/nubox-client";
 import { decryptSecret } from "@/lib/crypto";
+import { resolveInvoiceTerms } from "@/lib/payment-terms";
+import { normalizeRut } from "@/lib/rut";
 
 // Trae documentos desde 6 meses atrás (para detectar vencidos impagos) hasta
 // 4 meses hacia adelante (facturas ya emitidas con vencimiento futuro).
@@ -37,9 +39,15 @@ export async function POST() {
     const from = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const to = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
 
-    const invoices = await client.fetchInvoices({ from, to });
+    const [invoices, org, paymentTerms] = await Promise.all([
+      client.fetchInvoices({ from, to }),
+      prisma.organization.findUniqueOrThrow({ where: { id: session.organizationId } }),
+      prisma.paymentTerm.findMany({ where: { organizationId: session.organizationId } }),
+    ]);
+    const termsByRut = new Map(paymentTerms.map((t) => [normalizeRut(t.rut), t.days]));
 
     for (const inv of invoices) {
+      const resolved = resolveInvoiceTerms(inv, termsByRut, org.defaultPaymentTermDays, now);
       await prisma.invoice.upsert({
         where: {
           organizationId_source_externalId: {
@@ -51,10 +59,10 @@ export async function POST() {
         update: {
           type: inv.type,
           documentType: inv.documentType,
-          status: inv.status,
+          status: resolved.status,
           issueDate: inv.issueDate,
-          dueDate: inv.dueDate,
-          paidDate: inv.paidDate,
+          dueDate: resolved.dueDate,
+          paidDate: resolved.paidDate,
           netAmount: inv.netAmount,
           taxAmount: inv.taxAmount,
           totalAmount: inv.totalAmount,
@@ -70,10 +78,10 @@ export async function POST() {
           externalId: inv.externalId,
           type: inv.type,
           documentType: inv.documentType,
-          status: inv.status,
+          status: resolved.status,
           issueDate: inv.issueDate,
-          dueDate: inv.dueDate,
-          paidDate: inv.paidDate,
+          dueDate: resolved.dueDate,
+          paidDate: resolved.paidDate,
           netAmount: inv.netAmount,
           taxAmount: inv.taxAmount,
           totalAmount: inv.totalAmount,

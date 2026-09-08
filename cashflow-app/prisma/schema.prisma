@@ -1,7 +1,9 @@
 // Modelo de datos multi-tenant para el flujo de caja Sendu.
-// Fuente de facturas: el facturador de cada empresa (piloto con Nubox),
-// que ya trae compras y ventas con fecha de vencimiento real. Duemint es
-// opcional y solo enriquece las ventas con el estado real de cobro.
+// Fuente de facturas: el facturador de cada empresa (piloto con Nubox).
+// Duemint es opcional y solo enriquece las ventas con el estado real de
+// cobro. Nubox no siempre informa fecha de vencimiento (sobre todo en
+// compras, que no es un dato tributario sino un acuerdo comercial con el
+// proveedor) — ver PaymentTerm para cómo se resuelve cuando falta.
 // Nota: SQLite (usado en desarrollo) no soporta enums nativos de Prisma,
 // por eso los campos de "tipo fijo" son String y se validan con zod en
 // src/lib/validation.ts. Para producción, cambiar el datasource a
@@ -22,6 +24,12 @@ model Organization {
   rut             String?
   cashBalance     Float    @default(0)
   cashBalanceDate DateTime @default(now())
+  // Plazo de pago por defecto (días) para cualquier factura (compra o
+  // venta) que Nubox no traiga con fecha de vencimiento propia. Un
+  // PaymentTerm específico por RUT tiene prioridad sobre este valor; 0
+  // días = contado (se marca pagada de inmediato, sin proyectarse como
+  // egreso/ingreso futuro).
+  defaultPaymentTermDays Int @default(30)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -30,6 +38,7 @@ model Organization {
   recurringPayments RecurringPayment[]
   oneTimePayments   OneTimePayment[]
   estimatedSales    EstimatedSale[]
+  paymentTerms      PaymentTerm[]
   nuboxConnection   NuboxConnection?
   duemintConnection DuemintConnection?
   syncLogs          SyncLog[]
@@ -104,6 +113,25 @@ model SyncLog {
   invoicesSynced Int       @default(0)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Plazo de pago (días) configurado para un RUT específico (proveedor o
+// cliente), usado para resolver el vencimiento de una factura de compra o
+// venta cuando Nubox no la trae con fecha propia. Tiene prioridad sobre
+// Organization.defaultPaymentTermDays; 0 días = contado.
+model PaymentTerm {
+  id             String   @id @default(cuid())
+  organizationId String
+  rut            String // normalizado sin puntos ni guion, ver src/lib/rut.ts
+  name           String?
+  days           Int
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, rut])
 }
 
 // Facturas de venta y de compra traídas del facturador (Nubox), o

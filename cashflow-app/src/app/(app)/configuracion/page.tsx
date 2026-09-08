@@ -9,6 +9,7 @@ type Org = {
   rut: string | null;
   cashBalance: number;
   cashBalanceDate: string;
+  defaultPaymentTermDays: number;
 };
 
 type Connection = {
@@ -27,6 +28,7 @@ export default function ConfiguracionPage() {
     rut: "",
     cashBalance: "0",
     cashBalanceDate: "",
+    defaultPaymentTermDays: "30",
   });
   const [savingOrg, setSavingOrg] = useState(false);
 
@@ -46,6 +48,7 @@ export default function ConfiguracionPage() {
           rut: data.rut ?? "",
           cashBalance: String(data.cashBalance),
           cashBalanceDate: data.cashBalanceDate.slice(0, 10),
+          defaultPaymentTermDays: String(data.defaultPaymentTermDays ?? 30),
         });
       });
   }
@@ -125,6 +128,24 @@ export default function ConfiguracionPage() {
               onChange={(e) => setOrgForm({ ...orgForm, cashBalanceDate: e.target.value })}
             />
           </div>
+        </div>
+        <div>
+          <label className="label">Plazo de pago genérico (días)</label>
+          <input
+            className="input max-w-[140px]"
+            type="number"
+            min={0}
+            value={orgForm.defaultPaymentTermDays}
+            onChange={(e) => setOrgForm({ ...orgForm, defaultPaymentTermDays: e.target.value })}
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            Se usa cuando Nubox no trae fecha de vencimiento en un documento (compra o venta) y el RUT de
+            la contraparte no tiene un plazo propio configurado en{" "}
+            <a href="/plazos-de-pago" className="underline text-brand">
+              Plazos de Pago
+            </a>
+            . 0 días = contado.
+          </p>
         </div>
         <button type="submit" className="btn-primary" disabled={savingOrg}>
           {savingOrg ? "Guardando..." : "Guardar"}
