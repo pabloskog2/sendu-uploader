@@ -32,6 +32,7 @@ const emptyForm = {
   dayOfMonth: "1",
   weekday: "1",
   startDate: new Date().toISOString().slice(0, 10),
+  noEndDate: true,
   endDate: "",
 };
 
@@ -66,7 +67,7 @@ export default function PagosRecurrentesPage() {
       dayOfMonth: ["MONTHLY", "ANNUAL"].includes(form.frequency) ? Number(form.dayOfMonth) : null,
       weekday: ["WEEKLY", "BIWEEKLY"].includes(form.frequency) ? Number(form.weekday) : null,
       startDate: form.startDate,
-      endDate: form.endDate || null,
+      endDate: form.frequency === "ONCE" || form.noEndDate ? null : form.endDate || null,
       active: true,
     };
 
@@ -210,15 +211,27 @@ export default function PagosRecurrentesPage() {
             onChange={(e) => setForm({ ...form, startDate: e.target.value })}
           />
         </div>
-        <div>
-          <label className="label">Fecha de término (opcional)</label>
-          <input
-            className="input"
-            type="date"
-            value={form.endDate}
-            onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-          />
-        </div>
+        {form.frequency !== "ONCE" && (
+          <div>
+            <label className="label">Fecha de término</label>
+            <label className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+              <input
+                type="checkbox"
+                checked={form.noEndDate}
+                onChange={(e) => setForm({ ...form, noEndDate: e.target.checked, endDate: "" })}
+              />
+              Sin fecha de término
+            </label>
+            {!form.noEndDate && (
+              <input
+                className="input"
+                type="date"
+                value={form.endDate}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+              />
+            )}
+          </div>
+        )}
 
         <div className="md:col-span-3 flex items-center gap-3">
           <button type="submit" className="btn-primary" disabled={saving}>

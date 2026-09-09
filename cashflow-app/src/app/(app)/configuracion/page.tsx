@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import ConnectionCard from "@/components/ConnectionCard";
 
 type Org = {
   name: string;
+  tradeName: string | null;
   rut: string | null;
 };
 
@@ -19,8 +21,9 @@ type NuboxConnection = (Connection & { companyId: string | null }) | null;
 type DuemintConnection = (Connection & { companyId: string | null }) | null;
 
 export default function ConfiguracionPage() {
+  const router = useRouter();
   const [org, setOrg] = useState<Org | null>(null);
-  const [orgForm, setOrgForm] = useState({ name: "", rut: "" });
+  const [orgForm, setOrgForm] = useState({ name: "", tradeName: "", rut: "" });
   const [savingOrg, setSavingOrg] = useState(false);
 
   const [nuboxConnection, setNuboxConnection] = useState<NuboxConnection>(null);
@@ -34,7 +37,7 @@ export default function ConfiguracionPage() {
       .then((r) => r.json())
       .then((data: Org) => {
         setOrg(data);
-        setOrgForm({ name: data.name, rut: data.rut ?? "" });
+        setOrgForm({ name: data.name, tradeName: data.tradeName ?? "", rut: data.rut ?? "" });
       });
   }
 
@@ -65,6 +68,7 @@ export default function ConfiguracionPage() {
       body: JSON.stringify(orgForm),
     });
     setSavingOrg(false);
+    router.refresh();
   }
 
   if (!org) return <p className="text-slate-400">Cargando...</p>;
@@ -73,13 +77,22 @@ export default function ConfiguracionPage() {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold text-brand">Configuración</h1>
-        <p className="text-sm text-slate-500">Datos de la empresa y conexiones con Nubox y Duemint.</p>
+        <p className="text-sm text-slate-500">Datos de la empresa e integraciones con facturadores y conciliadores.</p>
       </div>
 
       <form onSubmit={saveOrg} className="card space-y-4">
         <h2 className="font-semibold text-slate-700">Empresa</h2>
         <div>
-          <label className="label">Nombre</label>
+          <label className="label">Nombre de la empresa</label>
+          <input
+            className="input"
+            value={orgForm.tradeName}
+            onChange={(e) => setOrgForm({ ...orgForm, tradeName: e.target.value })}
+            placeholder="Nombre de fantasía, se muestra en el menú"
+          />
+        </div>
+        <div>
+          <label className="label">Razón social</label>
           <input
             className="input"
             value={orgForm.name}
@@ -99,25 +112,41 @@ export default function ConfiguracionPage() {
         </button>
       </form>
 
-      <ConnectionCard
-        title="Conexión con Nubox (compras y ventas)"
-        status={nuboxConnection?.status}
-        lastSyncedAt={nuboxConnection?.lastSyncedAt}
-        lastError={nuboxConnection?.lastError}
-        syncEndpoint="/api/nubox/sync"
-        syncLabel="Sincronizar Nubox"
-        onOpenConfig={() => setNuboxModalOpen(true)}
-      />
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-700">Facturadores</h2>
+          <p className="text-xs text-slate-500">
+            Fuente de las facturas de compra y venta. Por ahora solo integramos Nubox.
+          </p>
+        </div>
+        <ConnectionCard
+          title="Nubox"
+          status={nuboxConnection?.status}
+          lastSyncedAt={nuboxConnection?.lastSyncedAt}
+          lastError={nuboxConnection?.lastError}
+          syncEndpoint="/api/nubox/sync"
+          syncLabel="Sincronizar Nubox"
+          onOpenConfig={() => setNuboxModalOpen(true)}
+        />
+      </div>
 
-      <ConnectionCard
-        title="Conexión con Duemint (opcional: solo estado de pago de ventas)"
-        status={duemintConnection?.status}
-        lastSyncedAt={duemintConnection?.lastSyncedAt}
-        lastError={duemintConnection?.lastError}
-        syncEndpoint="/api/duemint/sync"
-        syncLabel="Actualizar estado de pago"
-        onOpenConfig={() => setDuemintModalOpen(true)}
-      />
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-700">Conciliadores</h2>
+          <p className="text-xs text-slate-500">
+            Actualizan el estado de pago de facturas ya sincronizadas. Por ahora solo integramos Duemint.
+          </p>
+        </div>
+        <ConnectionCard
+          title="Duemint"
+          status={duemintConnection?.status}
+          lastSyncedAt={duemintConnection?.lastSyncedAt}
+          lastError={duemintConnection?.lastError}
+          syncEndpoint="/api/duemint/sync"
+          syncLabel="Actualizar estado de pago"
+          onOpenConfig={() => setDuemintModalOpen(true)}
+        />
+      </div>
 
       {nuboxModalOpen && (
         <NuboxConfigModal

@@ -20,7 +20,11 @@ datasource db {
 
 model Organization {
   id              String   @id @default(cuid())
+  // Razón social (nombre legal). El nombre de fantasía que se muestra en
+  // el menú es tradeName; si no está configurado, se usa este.
   name            String
+  // Nombre de fantasía / nombre comercial, mostrado en el menú lateral.
+  tradeName       String?
   rut             String?
   // Saldo de caja actual, editable desde el Dashboard. Siempre representa
   // "hoy" — no se versiona por fecha, cada edición reemplaza el valor.

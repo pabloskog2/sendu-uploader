@@ -82,6 +82,12 @@ export function expandRecurringOccurrences(
 ): Date[] {
   if (!rp.active) return [];
 
+  if (rp.frequency === "ONCE") {
+    const date = startOfDay(rp.startDate);
+    if (isBefore(date, rangeStart) || isAfter(date, rangeEnd)) return [];
+    return [date];
+  }
+
   const hardEnd = rp.endDate && isBefore(rp.endDate, rangeEnd) ? rp.endDate : rangeEnd;
   if (isAfter(rp.startDate, hardEnd)) return [];
 

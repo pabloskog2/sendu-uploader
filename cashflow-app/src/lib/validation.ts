@@ -13,7 +13,7 @@ export const recurringPaymentSchema = z.object({
   ]),
   type: z.enum(["EXPENSE", "INCOME"]).default("EXPENSE"),
   amount: z.coerce.number().positive("El monto debe ser mayor a 0"),
-  frequency: z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "ANNUAL"]),
+  frequency: z.enum(["ONCE", "WEEKLY", "BIWEEKLY", "MONTHLY", "ANNUAL"]),
   dayOfMonth: z.coerce.number().int().min(1).max(28).optional().nullable(),
   weekday: z.coerce.number().int().min(0).max(6).optional().nullable(),
   startDate: z.coerce.date(),
@@ -57,6 +57,7 @@ export const duemintConnectionSchema = z.object({
 
 export const orgSettingsSchema = z.object({
   name: z.string().min(1),
+  tradeName: z.string().optional().nullable(),
   rut: z.string().optional().nullable(),
   cashBalance: z.coerce.number(),
   defaultPaymentTermDays: z.coerce.number().int().min(0).default(30),

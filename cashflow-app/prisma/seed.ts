@@ -16,6 +16,7 @@ async function main() {
   const org = await prisma.organization.create({
     data: {
       name: "Sendu Demo SpA",
+      tradeName: "Sendu Demo",
       rut: "76.000.000-0",
       cashBalance: 4_500_000,
       memberships: {

@@ -13,13 +13,22 @@ const NAV_ITEMS = [
   { href: "/configuracion", label: "Configuración", icon: "⚙️" },
 ];
 
-export default function Sidebar({ organizationName }: { organizationName: string }) {
+export default function Sidebar({
+  tradeName,
+  legalName,
+}: {
+  tradeName: string | null;
+  legalName: string;
+}) {
   const pathname = usePathname();
+  const displayName = tradeName || legalName;
 
   return (
     <div className="w-64 shrink-0 bg-brand text-white min-h-screen flex flex-col p-5">
-      <div className="text-2xl font-bold mb-1">Sendu</div>
-      <div className="text-xs text-white/70 mb-8 truncate">{organizationName}</div>
+      <div className="mb-8">
+        <div className="text-2xl font-bold mb-1 truncate">{displayName}</div>
+        {displayName !== legalName && <div className="text-xs text-white/70 truncate">{legalName}</div>}
+      </div>
 
       <nav className="flex-1 space-y-1">
         {NAV_ITEMS.map((item) => {

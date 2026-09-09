@@ -73,6 +73,16 @@ export default function FacturasPage() {
     return sorted;
   }, [invoices, activeTab, sortField, sortDirection]);
 
+  async function reconcile(id: string) {
+    if (!confirm("¿Conciliar esta factura como pagada? Ya no se proyectará en el flujo de caja.")) return;
+    await fetch(`/api/invoices/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reconcile" }),
+    });
+    loadInvoices();
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -104,15 +114,15 @@ export default function FacturasPage() {
       )}
 
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <button
-            className={activeTab === "SALE" ? "btn-primary" : "btn-secondary"}
+            className={`w-40 py-3 text-base ${activeTab === "SALE" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setActiveTab("SALE")}
           >
             Ventas
           </button>
           <button
-            className={activeTab === "PURCHASE" ? "btn-primary" : "btn-secondary"}
+            className={`w-40 py-3 text-base ${activeTab === "PURCHASE" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setActiveTab("PURCHASE")}
           >
             Compras
@@ -151,6 +161,7 @@ export default function FacturasPage() {
               <th>Vencimiento</th>
               <th>Estado</th>
               <th className="text-right">Monto</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -163,11 +174,18 @@ export default function FacturasPage() {
                 <td>{formatDate(inv.dueDate)}</td>
                 <td>{labelFor(INVOICE_STATUSES, inv.status)}</td>
                 <td className="text-right font-medium">{formatCLP(inv.totalAmount)}</td>
+                <td>
+                  {(inv.status === "PENDING" || inv.status === "OVERDUE") && (
+                    <button onClick={() => reconcile(inv.id)} className="text-xs underline text-brand">
+                      Conciliar
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="text-center text-slate-400 py-8">
+                <td colSpan={8} className="text-center text-slate-400 py-8">
                   {activeTab === "SALE"
                     ? "No hay facturas de venta todavía. Sincroniza con Nubox."
                     : "No hay facturas de compra todavía. Sincroniza con Nubox."}

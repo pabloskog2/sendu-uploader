@@ -113,8 +113,8 @@ export default function DashboardClient({
             <thead>
               <tr>
                 <th>Fecha</th>
-                <th className="text-right">CxC Duemint</th>
-                <th className="text-right">CxC próximo mes</th>
+                <th className="text-right">CxC Nubox</th>
+                <th className="text-right">CxC manuales</th>
                 <th className="text-right">CxP Nubox</th>
                 <th className="text-right">CxP manuales</th>
                 <th className="text-right">Saldo diario</th>

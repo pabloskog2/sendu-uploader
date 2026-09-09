@@ -9,6 +9,7 @@ export const RECURRING_CATEGORIES = [
 ] as const;
 
 export const RECURRING_FREQUENCIES = [
+  { value: "ONCE", label: "Pago único" },
   { value: "WEEKLY", label: "Semanal" },
   { value: "BIWEEKLY", label: "Quincenal" },
   { value: "MONTHLY", label: "Mensual" },
