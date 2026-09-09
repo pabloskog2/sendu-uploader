@@ -116,16 +116,16 @@ export default function ConfiguracionPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-700">Facturadores</h2>
           <p className="text-xs text-slate-500">
-            Fuente de las facturas de compra y venta. Por ahora solo integramos Nubox.
+            Fuente de las facturas de compra y venta. Por ahora el único facturador integrado es (Nubox).
           </p>
         </div>
         <ConnectionCard
-          title="Nubox"
+          title="Facturador (Nubox)"
           status={nuboxConnection?.status}
           lastSyncedAt={nuboxConnection?.lastSyncedAt}
           lastError={nuboxConnection?.lastError}
           syncEndpoint="/api/nubox/sync"
-          syncLabel="Sincronizar Nubox"
+          syncLabel="Sincronizar (Nubox)"
           onOpenConfig={() => setNuboxModalOpen(true)}
         />
       </div>
@@ -134,11 +134,12 @@ export default function ConfiguracionPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-700">Conciliadores</h2>
           <p className="text-xs text-slate-500">
-            Actualizan el estado de pago de facturas ya sincronizadas. Por ahora solo integramos Duemint.
+            Actualizan el estado de pago de facturas ya sincronizadas. Por ahora el único conciliador
+            integrado es (Duemint).
           </p>
         </div>
         <ConnectionCard
-          title="Duemint"
+          title="Conciliador (Duemint)"
           status={duemintConnection?.status}
           lastSyncedAt={duemintConnection?.lastSyncedAt}
           lastError={duemintConnection?.lastError}
@@ -205,10 +206,11 @@ function NuboxConfigModal({
   }
 
   return (
-    <Modal title="Conexión con Nubox" onClose={onClose}>
+    <Modal title="Conexión con el facturador (Nubox)" onClose={onClose}>
       <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-        Nubox es la fuente principal de facturas: trae compras y ventas con su fecha de vencimiento
-        real. Usa un token de API de tu cuenta Nubox, no tu contraseña de acceso al portal.
+        El facturador (Nubox) es la fuente principal de facturas: trae compras y ventas con su fecha de
+        vencimiento real. Usa un token de API de tu cuenta del facturador (Nubox), no tu contraseña de
+        acceso al portal.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -280,10 +282,10 @@ function DuemintConfigModal({
   }
 
   return (
-    <Modal title="Conexión con Duemint" onClose={onClose}>
+    <Modal title="Conexión con el conciliador (Duemint)" onClose={onClose}>
       <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2">
         Opcional. Solo actualiza el estado de pago (pagada / pendiente / vencida) de las facturas de
-        venta que ya se sincronizaron desde Nubox, emparejándolas por folio.
+        venta que ya se sincronizaron desde el facturador (Nubox), emparejándolas por folio.
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

@@ -89,12 +89,12 @@ export default function FacturasPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand">Facturas</h1>
           <p className="text-sm text-slate-500">
-            Compras y ventas desde Nubox. Duemint (opcional) solo actualiza el estado de pago de las
-            ventas.
+            Compras y ventas desde el facturador (Nubox). El conciliador (Duemint), opcional, solo
+            actualiza el estado de pago de las ventas.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <SyncButton endpoint="/api/nubox/sync" label="Sincronizar Nubox" onSynced={loadInvoices} />
+          <SyncButton endpoint="/api/nubox/sync" label="Sincronizar (Nubox)" onSynced={loadInvoices} />
           <SyncButton
             endpoint="/api/duemint/sync"
             label="Actualizar estado de pago (Duemint)"
@@ -105,7 +105,7 @@ export default function FacturasPage() {
 
       {nuboxConnection && nuboxConnection.status !== "CONNECTED" && (
         <div className="card bg-amber-50 border-amber-200 text-amber-800 text-sm">
-          Aún no configuras la conexión con Nubox. Ve a{" "}
+          Aún no configuras la conexión con el facturador (Nubox). Ve a{" "}
           <a href="/configuracion" className="underline font-medium">
             Configuración
           </a>{" "}
@@ -187,8 +187,8 @@ export default function FacturasPage() {
               <tr>
                 <td colSpan={8} className="text-center text-slate-400 py-8">
                   {activeTab === "SALE"
-                    ? "No hay facturas de venta todavía. Sincroniza con Nubox."
-                    : "No hay facturas de compra todavía. Sincroniza con Nubox."}
+                    ? "No hay facturas de venta todavía. Sincroniza con el facturador (Nubox)."
+                    : "No hay facturas de compra todavía. Sincroniza con el facturador (Nubox)."}
                 </td>
               </tr>
             )}

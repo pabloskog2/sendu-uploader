@@ -136,8 +136,35 @@ export function expandRecurringOccurrences(
   return occurrences;
 }
 
-/** Reparte una venta estimada mensual en montos diarios dentro del rango pedido. */
-function distributeEstimatedSale(sale: Pick<EstimatedSale, "periodMonth" | "amount">, rangeStart: Date, rangeEnd: Date) {
+/**
+ * Reparte una venta estimada (ingreso aún no facturado) en el rango pedido,
+ * según su forma de distribución:
+ * - SINGLE: todo el monto en `date`.
+ * - PRORATE: en partes iguales entre los días de `periodMonth`.
+ * - MILESTONES: según los hitos guardados en `milestones` (JSON).
+ */
+function distributeEstimatedSale(
+  sale: Pick<EstimatedSale, "distributionType" | "date" | "periodMonth" | "amount" | "milestones">,
+  rangeStart: Date,
+  rangeEnd: Date
+): { date: Date; amount: number }[] {
+  if (sale.distributionType === "SINGLE") {
+    if (!sale.date) return [];
+    const date = startOfDay(sale.date);
+    if (isBefore(date, rangeStart) || isAfter(date, rangeEnd)) return [];
+    return [{ date, amount: sale.amount }];
+  }
+
+  if (sale.distributionType === "MILESTONES") {
+    if (!sale.milestones) return [];
+    const milestones: { date: string; amount: number }[] = JSON.parse(sale.milestones);
+    return milestones
+      .map((m) => ({ date: startOfDay(new Date(m.date)), amount: m.amount }))
+      .filter((m) => !isBefore(m.date, rangeStart) && !isAfter(m.date, rangeEnd));
+  }
+
+  // PRORATE
+  if (!sale.periodMonth) return [];
   const monthStart = startOfMonth(sale.periodMonth);
   const monthEnd = endOfMonth(sale.periodMonth);
   const daysInMonth = getDaysInMonth(sale.periodMonth);
@@ -145,7 +172,7 @@ function distributeEstimatedSale(sale: Pick<EstimatedSale, "periodMonth" | "amou
 
   const overlapStart = isAfter(monthStart, rangeStart) ? monthStart : rangeStart;
   const overlapEnd = isBefore(monthEnd, rangeEnd) ? monthEnd : rangeEnd;
-  if (isAfter(overlapStart, overlapEnd)) return [] as { date: Date; amount: number }[];
+  if (isAfter(overlapStart, overlapEnd)) return [];
 
   return eachDayOfInterval({ start: overlapStart, end: overlapEnd }).map((date) => ({
     date: startOfDay(date),
@@ -259,7 +286,12 @@ export async function getCashflowProjection(
       bucket.estimatedIncome += p.amount;
       bucket.detail.estimatedIncome.push({
         label: sale.description ?? "Venta estimada",
-        sub: "prorrateo mensual",
+        sub:
+          sale.distributionType === "SINGLE"
+            ? "venta única"
+            : sale.distributionType === "MILESTONES"
+            ? "hito"
+            : "prorrateo mensual",
         amount: p.amount,
       });
     }

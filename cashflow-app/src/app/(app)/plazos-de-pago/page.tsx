@@ -91,7 +91,7 @@ export default function PlazosDePagoPage() {
       <div>
         <h1 className="text-2xl font-bold text-brand">Plazos de Pago</h1>
         <p className="text-sm text-slate-500">
-          Nubox no siempre trae la fecha de vencimiento de un documento (sobre todo en compras, donde es
+          El facturador (Nubox) no siempre trae la fecha de vencimiento de un documento (sobre todo en compras, donde es
           un acuerdo comercial con el proveedor, no un dato tributario). Cuando falta, se usa el plazo
           configurado por RUT; si no hay uno, se usa el plazo genérico de abajo. Aplica tanto a compras
           como a ventas.

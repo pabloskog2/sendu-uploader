@@ -209,18 +209,26 @@ model OneTimePayment {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
-// Ventas estimadas para períodos futuros (proyección comercial).
+// Ventas estimadas: ingresos proyectados aún no facturados (a diferencia de
+// las ventas ya facturadas, que llegan como Invoice con su propia fecha).
+// Tres formas de ubicarlas en el flujo de caja, según distributionType:
+// - SINGLE: todo el monto cae en `date`.
+// - PRORATE: se reparte en partes iguales entre los días de `periodMonth`.
+// - MILESTONES: se reparte según `milestones` (JSON: [{date, amount}]),
+//   para el caso de cobros por hitos (ej. 50% al día 10, 30% al día 15,
+//   20% al día 30).
 model EstimatedSale {
-  id             String   @id @default(cuid())
-  organizationId String
-  periodMonth    DateTime // primer día del mes proyectado
-  amount         Float
-  description    String?
-  confidence     String   @default("MEDIUM") // LOW | MEDIUM | HIGH
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String    @id @default(cuid())
+  organizationId   String
+  amount           Float
+  description      String?
+  confidence       String    @default("MEDIUM") // LOW | MEDIUM | HIGH
+  distributionType String    @default("PRORATE") // SINGLE | PRORATE | MILESTONES
+  date             DateTime? // usado por SINGLE
+  periodMonth      DateTime? // usado por PRORATE (primer día del mes proyectado)
+  milestones       String? // JSON [{ date: ISO string, amount: number }], usado por MILESTONES
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, periodMonth])
 }

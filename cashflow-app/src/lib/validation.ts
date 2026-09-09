@@ -32,10 +32,16 @@ export const oneTimePaymentSchema = z.object({
 });
 
 export const estimatedSaleSchema = z.object({
-  periodMonth: z.coerce.date(),
   amount: z.coerce.number().positive("El monto debe ser mayor a 0"),
   description: z.string().optional().nullable(),
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+  distributionType: z.enum(["SINGLE", "PRORATE", "MILESTONES"]).default("PRORATE"),
+  date: z.coerce.date().optional().nullable(),
+  periodMonth: z.coerce.date().optional().nullable(),
+  milestones: z
+    .array(z.object({ date: z.coerce.date(), amount: z.coerce.number().positive() }))
+    .optional()
+    .nullable(),
 });
 
 export const paymentTermSchema = z.object({
