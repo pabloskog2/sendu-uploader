@@ -34,7 +34,6 @@ export const oneTimePaymentSchema = z.object({
 export const estimatedSaleSchema = z.object({
   amount: z.coerce.number().positive("El monto debe ser mayor a 0"),
   description: z.string().optional().nullable(),
-  confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   distributionType: z.enum(["SINGLE", "PRORATE", "MILESTONES"]).default("PRORATE"),
   date: z.coerce.date().optional().nullable(),
   periodMonth: z.coerce.date().optional().nullable(),
@@ -74,4 +73,30 @@ export const signupSchema = z.object({
   name: z.string().min(1, "Tu nombre es obligatorio"),
   email: z.string().email("Correo inválido"),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+});
+
+export const userCreateSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio"),
+  email: z.string().email("Correo inválido"),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+  role: z.enum(["ADMIN", "MEMBER"]).default("MEMBER"),
+});
+
+export const userRoleUpdateSchema = z.object({
+  role: z.enum(["OWNER", "ADMIN", "MEMBER"]),
+});
+
+export const accountUpdateSchema = z.object({
+  name: z.string().min(1, "El nombre es obligatorio").optional(),
+  email: z.string().email("Correo inválido").optional(),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres").optional(),
+});
+
+// DEMO: sin pasarela de pago real. Solo se validan datos no sensibles —
+// nunca se recibe el número completo de la tarjeta ni el CVV.
+export const paymentMethodSchema = z.object({
+  brand: z.enum(["Visa", "Mastercard", "Tarjeta"]),
+  last4: z.string().regex(/^\d{4}$/, "Deben ser los últimos 4 dígitos"),
+  expMonth: z.coerce.number().int().min(1).max(12),
+  expYear: z.coerce.number().int().min(new Date().getFullYear()),
 });

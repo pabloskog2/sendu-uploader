@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CONFIDENCE_LEVELS, formatCLP } from "@/lib/constants";
+import { formatCLP } from "@/lib/constants";
 
 type Milestone = { date: string; amount: number };
 
@@ -9,7 +9,6 @@ type EstimatedSale = {
   id: string;
   amount: number;
   description: string | null;
-  confidence: string;
   distributionType: "SINGLE" | "PRORATE" | "MILESTONES";
   date: string | null;
   periodMonth: string | null;
@@ -59,7 +58,6 @@ export default function VentasEstimadasPage() {
     distributionType: "PRORATE" as (typeof DISTRIBUTION_TYPES)[number]["value"],
     amount: "",
     description: "",
-    confidence: "MEDIUM",
     date: today(),
     periodMonth: currentMonth(),
   });
@@ -100,7 +98,6 @@ export default function VentasEstimadasPage() {
     const payload: Record<string, unknown> = {
       amount: totalAmount,
       description: form.description || null,
-      confidence: form.confidence,
       distributionType: form.distributionType,
     };
 
@@ -157,7 +154,7 @@ export default function VentasEstimadasPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="card space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="label">Tipo</label>
             <select
@@ -182,20 +179,6 @@ export default function VentasEstimadasPage() {
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
             />
-          </div>
-          <div>
-            <label className="label">Confianza</label>
-            <select
-              className="input"
-              value={form.confidence}
-              onChange={(e) => setForm({ ...form, confidence: e.target.value })}
-            >
-              {CONFIDENCE_LEVELS.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
           </div>
           <div>
             <label className="label">Descripción (opcional)</label>
@@ -296,7 +279,6 @@ export default function VentasEstimadasPage() {
               <th>Tipo</th>
               <th>Cuándo</th>
               <th>Descripción</th>
-              <th>Confianza</th>
               <th className="text-right">Monto</th>
               <th></th>
             </tr>
@@ -307,7 +289,6 @@ export default function VentasEstimadasPage() {
                 <td>{DISTRIBUTION_TYPES.find((t) => t.value === item.distributionType)?.label}</td>
                 <td>{distributionSummary(item)}</td>
                 <td>{item.description ?? "-"}</td>
-                <td>{CONFIDENCE_LEVELS.find((c) => c.value === item.confidence)?.label}</td>
                 <td className="text-right font-medium text-estimate">{formatCLP(item.amount)}</td>
                 <td>
                   <button onClick={() => remove(item.id)} className="text-xs text-expense underline">
@@ -318,7 +299,7 @@ export default function VentasEstimadasPage() {
             ))}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center text-slate-400 py-8">
+                <td colSpan={5} className="text-center text-slate-400 py-8">
                   Aún no agregas ventas estimadas.
                 </td>
               </tr>

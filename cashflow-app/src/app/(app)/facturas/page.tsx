@@ -93,11 +93,11 @@ export default function FacturasPage() {
             actualiza el estado de pago de las ventas.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <SyncButton endpoint="/api/nubox/sync" label="Sincronizar (Nubox)" onSynced={loadInvoices} />
+        <div className="flex flex-wrap justify-end gap-3">
+          <SyncButton endpoint="/api/nubox/sync" label="Sincronizar facturas" onSynced={loadInvoices} />
           <SyncButton
             endpoint="/api/duemint/sync"
-            label="Actualizar estado de pago (Duemint)"
+            label="Sincronizar conciliación"
             onSynced={loadInvoices}
           />
         </div>

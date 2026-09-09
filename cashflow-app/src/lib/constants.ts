@@ -26,10 +26,10 @@ export const ONE_TIME_CATEGORIES = [
   { value: "OTRO", label: "Otro" },
 ] as const;
 
-export const CONFIDENCE_LEVELS = [
-  { value: "LOW", label: "Baja" },
-  { value: "MEDIUM", label: "Media" },
-  { value: "HIGH", label: "Alta" },
+export const USER_ROLES = [
+  { value: "OWNER", label: "Dueño" },
+  { value: "ADMIN", label: "Administrador" },
+  { value: "MEMBER", label: "Miembro" },
 ] as const;
 
 export const INVOICE_TYPES = [

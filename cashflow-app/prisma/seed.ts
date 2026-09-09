@@ -94,10 +94,32 @@ async function main() {
         periodMonth: month,
         amount: 8_000_000 + i * 500_000,
         description: "Proyección comercial",
-        confidence: i === 0 ? "HIGH" : "MEDIUM",
       },
     });
   }
+
+  await prisma.paymentMethod.create({
+    data: { organizationId: org.id, brand: "Visa", last4: "4242", expMonth: 12, expYear: today.getFullYear() + 2 },
+  });
+
+  await prisma.billingPayment.createMany({
+    data: [
+      {
+        organizationId: org.id,
+        description: "Suscripción Sendu — plan mensual",
+        amount: 49_990,
+        status: "PAID",
+        paidAt: new Date(today.getFullYear(), today.getMonth() - 1, 5),
+      },
+      {
+        organizationId: org.id,
+        description: "Suscripción Sendu — plan mensual",
+        amount: 49_990,
+        status: "PAID",
+        paidAt: new Date(today.getFullYear(), today.getMonth(), 5),
+      },
+    ],
+  });
 
   console.log("Seed completado. Ingresa con demo@sendu.cl / demo1234");
 }

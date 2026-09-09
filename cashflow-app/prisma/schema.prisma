@@ -47,6 +47,8 @@ model Organization {
   nuboxConnection   NuboxConnection?
   duemintConnection DuemintConnection?
   syncLogs          SyncLog[]
+  paymentMethod     PaymentMethod?
+  billingPayments   BillingPayment[]
 }
 
 model User {
@@ -209,6 +211,36 @@ model OneTimePayment {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
+// Método de pago de la suscripción de Sendu (no de la caja del cliente).
+// DEMO: no hay pasarela de pago real integrada — solo se guardan los datos
+// no sensibles (marca, últimos 4 dígitos, vencimiento) para simular la
+// experiencia. Nunca se recibe ni se guarda el número completo ni el CVV.
+model PaymentMethod {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  brand          String // Visa | Mastercard | Tarjeta
+  last4          String
+  expMonth       Int
+  expYear        Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Historial de cobros de la suscripción de Sendu a esta empresa. DEMO: se
+// siembra con datos de ejemplo, no hay cobro automático real todavía.
+model BillingPayment {
+  id             String   @id @default(cuid())
+  organizationId String
+  description    String
+  amount         Float
+  status         String // PAID | FAILED
+  paidAt         DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
 // Ventas estimadas: ingresos proyectados aún no facturados (a diferencia de
 // las ventas ya facturadas, que llegan como Invoice con su propia fecha).
 // Tres formas de ubicarlas en el flujo de caja, según distributionType:
@@ -222,7 +254,6 @@ model EstimatedSale {
   organizationId   String
   amount           Float
   description      String?
-  confidence       String    @default("MEDIUM") // LOW | MEDIUM | HIGH
   distributionType String    @default("PRORATE") // SINGLE | PRORATE | MILESTONES
   date             DateTime? // usado por SINGLE
   periodMonth      DateTime? // usado por PRORATE (primer día del mes proyectado)

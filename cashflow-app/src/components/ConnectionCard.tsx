@@ -48,7 +48,7 @@ export default function ConnectionCard({
         <p className="text-xs text-expense break-words">{lastError}</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <button onClick={onOpenConfig} className="btn-secondary">
           {status === "CONNECTED" ? "Editar conexión" : "Configurar conexión"}
         </button>
