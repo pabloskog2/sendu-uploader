@@ -1,0 +1,265 @@
+// Modelo de datos multi-tenant para el flujo de caja Sendu.
+// Fuente de facturas: el facturador de cada empresa (piloto con Nubox).
+// Duemint es opcional y solo enriquece las ventas con el estado real de
+// cobro. Nubox no siempre informa fecha de vencimiento (sobre todo en
+// compras, que no es un dato tributario sino un acuerdo comercial con el
+// proveedor) — ver PaymentTerm para cómo se resuelve cuando falta.
+// Nota: SQLite (usado en desarrollo) no soporta enums nativos de Prisma,
+// por eso los campos de "tipo fijo" son String y se validan con zod en
+// src/lib/validation.ts. Para producción, cambiar el datasource a
+// "postgresql" y opcionalmente convertir esos campos a enum real.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id              String   @id @default(cuid())
+  // Razón social (nombre legal). El nombre de fantasía que se muestra en
+  // el menú es tradeName; si no está configurado, se usa este.
+  name            String
+  // Nombre de fantasía / nombre comercial, mostrado en el menú lateral.
+  tradeName       String?
+  rut             String?
+  // Saldo de caja actual, editable desde el Dashboard. Siempre representa
+  // "hoy" — no se versiona por fecha, cada edición reemplaza el valor.
+  cashBalance     Float    @default(0)
+  // Plazo de pago por defecto (días) para cualquier factura (compra o
+  // venta) que Nubox no traiga con fecha de vencimiento propia. Un
+  // PaymentTerm específico por RUT tiene prioridad sobre este valor; 0
+  // días = contado (se marca pagada de inmediato, sin proyectarse como
+  // egreso/ingreso futuro).
+  defaultPaymentTermDays Int @default(30)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships       Membership[]
+  invoices          Invoice[]
+  recurringPayments RecurringPayment[]
+  oneTimePayments   OneTimePayment[]
+  estimatedSales    EstimatedSale[]
+  paymentTerms      PaymentTerm[]
+  nuboxConnection   NuboxConnection?
+  duemintConnection DuemintConnection?
+  syncLogs          SyncLog[]
+  paymentMethod     PaymentMethod?
+  billingPayments   BillingPayment[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  memberships Membership[]
+}
+
+// Une usuarios <-> empresas, permitiendo que Sendu venda el producto
+// a múltiples empresas y que un usuario pertenezca a más de una.
+model Membership {
+  id             String   @id @default(cuid())
+  role           String   @default("OWNER") // OWNER | ADMIN | MEMBER
+  userId         String
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+// Conexión al facturador de la empresa (piloto: Nubox), fuente principal de
+// facturas de compra y venta, con fecha de vencimiento real de ambas.
+model NuboxConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  apiToken       String?
+  companyId      String?
+  status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Conexión a Duemint (cobranza), opcional: solo enriquece las facturas de
+// venta ya traídas desde el facturador con su estado real de cobro (pagada,
+// pendiente, vencida), buscándolas por folio. No crea facturas nuevas.
+model DuemintConnection {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  apiToken       String?
+  companyId      String?
+  status         String    @default("DISCONNECTED") // DISCONNECTED | CONNECTED | ERROR
+  lastSyncedAt   DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model SyncLog {
+  id             String    @id @default(cuid())
+  organizationId String
+  source         String // NUBOX | DUEMINT
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  status         String // RUNNING | SUCCESS | ERROR
+  message        String?
+  invoicesSynced Int       @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Plazo de pago (días) configurado para un RUT específico (proveedor o
+// cliente), usado para resolver el vencimiento de una factura de compra o
+// venta cuando Nubox no la trae con fecha propia. Tiene prioridad sobre
+// Organization.defaultPaymentTermDays; 0 días = contado.
+model PaymentTerm {
+  id             String   @id @default(cuid())
+  organizationId String
+  rut            String // normalizado sin puntos ni guion, ver src/lib/rut.ts
+  name           String?
+  days           Int
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, rut])
+}
+
+// Facturas de venta y de compra traídas del facturador (Nubox), o
+// ingresadas manualmente. Duemint no es una fuente propia: solo actualiza
+// el estado de pago de las facturas de venta que ya existen aquí.
+model Invoice {
+  id              String    @id @default(cuid())
+  organizationId  String
+  source          String    @default("MANUAL") // NUBOX | MANUAL
+  externalId      String?
+  type            String // SALE | PURCHASE
+  documentType    String? // factura | boleta | nota_credito | nota_debito
+  status          String    @default("PENDING") // PENDING | PAID | OVERDUE | VOID
+  issueDate       DateTime
+  dueDate         DateTime
+  paidDate        DateTime?
+  netAmount       Float
+  taxAmount       Float     @default(0)
+  totalAmount     Float
+  counterpartName String?
+  counterpartRut  String?
+  folio           String?
+  currency        String    @default("CLP")
+  raw             String? // JSON crudo tal como llega de la fuente (SII/Duemint), para trazabilidad
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, source, externalId])
+  @@index([organizationId, dueDate])
+  @@index([organizationId, type])
+}
+
+// Pagos recurrentes no facturables: previred, créditos de banco,
+// remuneraciones, arriendos, etc.
+model RecurringPayment {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  category       String // PREVIRED | CREDITO_BANCO | REMUNERACIONES | ARRIENDO | SEGUROS | OTRO
+  type           String    @default("EXPENSE") // EXPENSE | INCOME
+  amount         Float
+  frequency      String // MONTHLY | BIWEEKLY | WEEKLY | ANNUAL
+  dayOfMonth     Int? // usado por MONTHLY / ANNUAL (1-28)
+  weekday        Int? // usado por WEEKLY / BIWEEKLY (0=domingo .. 6=sábado)
+  startDate      DateTime
+  endDate        DateTime?
+  active         Boolean   @default(true)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Pagos únicos / proyectos puntuales (ingreso o egreso).
+model OneTimePayment {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  category       String   @default("PROYECTO") // PROYECTO | OTRO
+  type           String   @default("EXPENSE") // EXPENSE | INCOME
+  amount         Float
+  date           DateTime
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Método de pago de la suscripción de Sendu (no de la caja del cliente).
+// DEMO: no hay pasarela de pago real integrada — solo se guardan los datos
+// no sensibles (marca, últimos 4 dígitos, vencimiento) para simular la
+// experiencia. Nunca se recibe ni se guarda el número completo ni el CVV.
+model PaymentMethod {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  brand          String // Visa | Mastercard | Tarjeta
+  last4          String
+  expMonth       Int
+  expYear        Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Historial de cobros de la suscripción de Sendu a esta empresa. DEMO: se
+// siembra con datos de ejemplo, no hay cobro automático real todavía.
+model BillingPayment {
+  id             String   @id @default(cuid())
+  organizationId String
+  description    String
+  amount         Float
+  status         String // PAID | FAILED
+  paidAt         DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Ventas estimadas: ingresos proyectados aún no facturados (a diferencia de
+// las ventas ya facturadas, que llegan como Invoice con su propia fecha).
+// Tres formas de ubicarlas en el flujo de caja, según distributionType:
+// - SINGLE: todo el monto cae en `date`.
+// - PRORATE: se reparte en partes iguales entre los días de `periodMonth`.
+// - MILESTONES: se reparte según `milestones` (JSON: [{date, amount}]),
+//   para el caso de cobros por hitos (ej. 50% al día 10, 30% al día 15,
+//   20% al día 30).
+model EstimatedSale {
+  id               String    @id @default(cuid())
+  organizationId   String
+  amount           Float
+  description      String?
+  distributionType String    @default("PRORATE") // SINGLE | PRORATE | MILESTONES
+  date             DateTime? // usado por SINGLE
+  periodMonth      DateTime? // usado por PRORATE (primer día del mes proyectado)
+  milestones       String? // JSON [{ date: ISO string, amount: number }], usado por MILESTONES
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
