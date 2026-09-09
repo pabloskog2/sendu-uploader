@@ -18,6 +18,24 @@ import {
 import { prisma } from "@/lib/prisma";
 import type { Invoice, OneTimePayment, RecurringPayment, EstimatedSale, Organization } from "@prisma/client";
 
+// Detalle de un movimiento individual dentro de un día, para mostrar en el
+// tooltip de la Cartola (qué factura/pago compone ese monto agregado).
+export type CashflowLineItem = {
+  label: string;
+  sub?: string;
+  amount: number;
+};
+
+export type CashflowDayDetail = {
+  invoiceIncome: CashflowLineItem[];
+  invoiceExpense: CashflowLineItem[];
+  recurringIncome: CashflowLineItem[];
+  recurringExpense: CashflowLineItem[];
+  oneTimeIncome: CashflowLineItem[];
+  oneTimeExpense: CashflowLineItem[];
+  estimatedIncome: CashflowLineItem[];
+};
+
 export type CashflowDay = {
   date: string; // yyyy-MM-dd
   invoiceIncome: number;
@@ -29,11 +47,11 @@ export type CashflowDay = {
   estimatedIncome: number;
   netChange: number;
   balance: number;
+  detail: CashflowDayDetail;
 };
 
 export type CashflowProjection = {
   startingBalance: number;
-  startingBalanceDate: string;
   days: CashflowDay[];
   totals: {
     invoiceIncome: number;
@@ -165,6 +183,15 @@ export async function getCashflowProjection(
       estimatedIncome: 0,
       netChange: 0,
       balance: 0,
+      detail: {
+        invoiceIncome: [],
+        invoiceExpense: [],
+        recurringIncome: [],
+        recurringExpense: [],
+        oneTimeIncome: [],
+        oneTimeExpense: [],
+        estimatedIncome: [],
+      },
     });
   }
 
@@ -175,8 +202,18 @@ export async function getCashflowProjection(
     if (isAfter(effectiveDate, endDate)) continue;
     const bucket = buckets.get(dayKey(effectiveDate));
     if (!bucket) continue;
-    if (inv.type === "SALE") bucket.invoiceIncome += inv.totalAmount;
-    else bucket.invoiceExpense += inv.totalAmount;
+    const item: CashflowLineItem = {
+      label: inv.counterpartName ?? "Sin contraparte",
+      sub: inv.folio ? `Folio ${inv.folio}` : undefined,
+      amount: inv.totalAmount,
+    };
+    if (inv.type === "SALE") {
+      bucket.invoiceIncome += inv.totalAmount;
+      bucket.detail.invoiceIncome.push(item);
+    } else {
+      bucket.invoiceExpense += inv.totalAmount;
+      bucket.detail.invoiceExpense.push(item);
+    }
   }
 
   for (const rp of recurringPayments) {
@@ -184,16 +221,28 @@ export async function getCashflowProjection(
     for (const occ of occurrences) {
       const bucket = buckets.get(dayKey(occ));
       if (!bucket) continue;
-      if (rp.type === "INCOME") bucket.recurringIncome += rp.amount;
-      else bucket.recurringExpense += rp.amount;
+      const item: CashflowLineItem = { label: rp.name, amount: rp.amount };
+      if (rp.type === "INCOME") {
+        bucket.recurringIncome += rp.amount;
+        bucket.detail.recurringIncome.push(item);
+      } else {
+        bucket.recurringExpense += rp.amount;
+        bucket.detail.recurringExpense.push(item);
+      }
     }
   }
 
   for (const otp of oneTimePayments) {
     const bucket = buckets.get(dayKey(startOfDay(otp.date)));
     if (!bucket) continue;
-    if (otp.type === "INCOME") bucket.oneTimeIncome += otp.amount;
-    else bucket.oneTimeExpense += otp.amount;
+    const item: CashflowLineItem = { label: otp.name, amount: otp.amount };
+    if (otp.type === "INCOME") {
+      bucket.oneTimeIncome += otp.amount;
+      bucket.detail.oneTimeIncome.push(item);
+    } else {
+      bucket.oneTimeExpense += otp.amount;
+      bucket.detail.oneTimeExpense.push(item);
+    }
   }
 
   for (const sale of estimatedSales) {
@@ -202,6 +251,11 @@ export async function getCashflowProjection(
       const bucket = buckets.get(dayKey(p.date));
       if (!bucket) continue;
       bucket.estimatedIncome += p.amount;
+      bucket.detail.estimatedIncome.push({
+        label: sale.description ?? "Venta estimada",
+        sub: "prorrateo mensual",
+        amount: p.amount,
+      });
     }
   }
 
@@ -257,7 +311,6 @@ export async function getCashflowProjection(
 
   return {
     startingBalance: org.cashBalance,
-    startingBalanceDate: dayKey(org.cashBalanceDate),
     days,
     totals,
   };

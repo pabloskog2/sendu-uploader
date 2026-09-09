@@ -22,8 +22,9 @@ model Organization {
   id              String   @id @default(cuid())
   name            String
   rut             String?
+  // Saldo de caja actual, editable desde el Dashboard. Siempre representa
+  // "hoy" — no se versiona por fecha, cada edición reemplaza el valor.
   cashBalance     Float    @default(0)
-  cashBalanceDate DateTime @default(now())
   // Plazo de pago por defecto (días) para cualquier factura (compra o
   // venta) que Nubox no traiga con fecha de vencimiento propia. Un
   // PaymentTerm específico por RUT tiene prioridad sobre este valor; 0

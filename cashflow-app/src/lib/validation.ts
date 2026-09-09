@@ -59,7 +59,6 @@ export const orgSettingsSchema = z.object({
   name: z.string().min(1),
   rut: z.string().optional().nullable(),
   cashBalance: z.coerce.number(),
-  cashBalanceDate: z.coerce.date(),
   defaultPaymentTermDays: z.coerce.number().int().min(0).default(30),
 });
 

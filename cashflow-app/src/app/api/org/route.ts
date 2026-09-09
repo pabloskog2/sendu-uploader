@@ -19,7 +19,7 @@ export async function PATCH(req: Request) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json();
-  const parsed = orgSettingsSchema.safeParse(body);
+  const parsed = orgSettingsSchema.partial().safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }

@@ -24,15 +24,36 @@ export default function PlazosDePagoPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [defaultDays, setDefaultDays] = useState("30");
+  const [savingDefault, setSavingDefault] = useState(false);
+
   async function load() {
     const res = await fetch("/api/payment-terms");
     setItems(await res.json());
     setLoading(false);
   }
 
+  function loadOrg() {
+    fetch("/api/org")
+      .then((r) => r.json())
+      .then((data: { defaultPaymentTermDays: number }) => setDefaultDays(String(data.defaultPaymentTermDays)));
+  }
+
   useEffect(() => {
     load();
+    loadOrg();
   }, []);
+
+  async function saveDefault(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingDefault(true);
+    await fetch("/api/org", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultPaymentTermDays: Number(defaultDays) }),
+    });
+    setSavingDefault(false);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,10 +93,33 @@ export default function PlazosDePagoPage() {
         <p className="text-sm text-slate-500">
           Nubox no siempre trae la fecha de vencimiento de un documento (sobre todo en compras, donde es
           un acuerdo comercial con el proveedor, no un dato tributario). Cuando falta, se usa el plazo
-          configurado acá para ese RUT; si no hay uno, se usa el plazo genérico de la empresa
-          (Configuración). Aplica tanto a compras como a ventas.
+          configurado por RUT; si no hay uno, se usa el plazo genérico de abajo. Aplica tanto a compras
+          como a ventas.
         </p>
       </div>
+
+      <form onSubmit={saveDefault} className="card space-y-2">
+        <h2 className="font-semibold text-slate-700">Plazo genérico</h2>
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="label">Días</label>
+            <input
+              className="input max-w-[140px]"
+              type="number"
+              min={0}
+              value={defaultDays}
+              onChange={(e) => setDefaultDays(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn-primary" disabled={savingDefault}>
+            {savingDefault ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400">
+          Se usa cuando un documento no trae vencimiento y el RUT de la contraparte no tiene un plazo
+          propio configurado abajo. 0 días = contado.
+        </p>
+      </form>
 
       <form onSubmit={handleSubmit} className="card grid grid-cols-1 md:grid-cols-4 gap-4">
         <div>

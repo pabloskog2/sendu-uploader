@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatCLP } from "@/lib/constants";
 import CashflowChart from "@/components/CashflowChart";
+import HoverAmountCell from "@/components/HoverAmountCell";
 import type { CashflowProjection } from "@/lib/cashflow-engine";
 
 const HORIZONS = [30, 60, 90, 120];
@@ -21,26 +23,6 @@ function formatDate(iso: string) {
   });
 }
 
-function groupByWeek(days: CashflowProjection["days"]) {
-  const weeks: { label: string; income: number; expense: number; net: number; balance: number }[] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    const chunk = days.slice(i, i + 7);
-    const income = chunk.reduce(
-      (sum, d) => sum + d.invoiceIncome + d.recurringIncome + d.oneTimeIncome + d.estimatedIncome,
-      0
-    );
-    const expense = chunk.reduce((sum, d) => sum + d.invoiceExpense + d.recurringExpense + d.oneTimeExpense, 0);
-    weeks.push({
-      label: `${formatDate(chunk[0].date)} — ${formatDate(chunk[chunk.length - 1].date)}`,
-      income,
-      expense,
-      net: income - expense,
-      balance: chunk[chunk.length - 1].balance,
-    });
-  }
-  return weeks;
-}
-
 export default function DashboardClient({
   projection,
   horizon,
@@ -49,7 +31,6 @@ export default function DashboardClient({
   horizon: number;
 }) {
   const [tab, setTab] = useState<Tab>("resumen");
-  const weeks = groupByWeek(projection.days);
   const { totals } = projection;
 
   return (
@@ -57,9 +38,7 @@ export default function DashboardClient({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-brand">Flujo de Caja</h1>
-          <p className="text-sm text-slate-500">
-            Saldo inicial {formatCLP(projection.startingBalance)} al {formatDate(projection.startingBalanceDate)}
-          </p>
+          <CashBalanceEditor cashBalance={projection.startingBalance} />
         </div>
         {tab === "resumen" && (
           <div className="flex gap-2">
@@ -80,12 +59,12 @@ export default function DashboardClient({
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         {TABS.map((t) => (
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
-            className={t.value === tab ? "btn-primary" : "btn-secondary"}
+            className={`w-40 py-3 text-base ${t.value === tab ? "btn-primary" : "btn-secondary"}`}
           >
             {t.label}
           </button>
@@ -125,38 +104,11 @@ export default function DashboardClient({
             <h2 className="font-semibold text-slate-700 mb-4">Saldo proyectado ({horizon} días)</h2>
             <CashflowChart days={projection.days} />
           </div>
-
-          <div className="card overflow-x-auto">
-            <h2 className="font-semibold text-slate-700 mb-4">Desglose semanal</h2>
-            <table className="table-base">
-              <thead>
-                <tr>
-                  <th>Semana</th>
-                  <th>Ingresos</th>
-                  <th>Egresos</th>
-                  <th>Neto</th>
-                  <th>Saldo al cierre</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeks.map((w) => (
-                  <tr key={w.label}>
-                    <td>{w.label}</td>
-                    <td className="text-income">{formatCLP(w.income)}</td>
-                    <td className="text-expense">{formatCLP(w.expense)}</td>
-                    <td className={w.net >= 0 ? "text-income" : "text-expense"}>{formatCLP(w.net)}</td>
-                    <td className={w.balance >= 0 ? "font-medium" : "font-medium text-expense"}>
-                      {formatCLP(w.balance)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </>
       ) : (
         <div className="card overflow-x-auto">
-          <h2 className="font-semibold text-slate-700 mb-4">Cartola día a día ({horizon} días)</h2>
+          <h2 className="font-semibold text-slate-700 mb-1">Cartola día a día ({horizon} días)</h2>
+          <p className="text-xs text-slate-400 mb-4">Pasa el mouse sobre un monto para ver el detalle.</p>
           <table className="table-base">
             <thead>
               <tr>
@@ -172,12 +124,30 @@ export default function DashboardClient({
               {projection.days.map((d) => (
                 <tr key={d.date}>
                   <td>{formatDate(d.date)}</td>
-                  <td className="text-right text-income">{formatCLP(d.invoiceIncome)}</td>
-                  <td className="text-right text-income">
-                    {formatCLP(d.estimatedIncome + d.recurringIncome + d.oneTimeIncome)}
-                  </td>
-                  <td className="text-right text-expense">{formatCLP(d.invoiceExpense)}</td>
-                  <td className="text-right text-expense">{formatCLP(d.recurringExpense + d.oneTimeExpense)}</td>
+                  <HoverAmountCell
+                    amount={d.invoiceIncome}
+                    items={d.detail.invoiceIncome}
+                    emptyLabel="Sin ventas facturadas este día"
+                    className="text-right text-income"
+                  />
+                  <HoverAmountCell
+                    amount={d.estimatedIncome + d.recurringIncome + d.oneTimeIncome}
+                    items={[...d.detail.estimatedIncome, ...d.detail.recurringIncome, ...d.detail.oneTimeIncome]}
+                    emptyLabel="Sin ingresos manuales este día"
+                    className="text-right text-income"
+                  />
+                  <HoverAmountCell
+                    amount={d.invoiceExpense}
+                    items={d.detail.invoiceExpense}
+                    emptyLabel="Sin compras facturadas este día"
+                    className="text-right text-expense"
+                  />
+                  <HoverAmountCell
+                    amount={d.recurringExpense + d.oneTimeExpense}
+                    items={[...d.detail.recurringExpense, ...d.detail.oneTimeExpense]}
+                    emptyLabel="Sin pagos manuales este día"
+                    className="text-right text-expense"
+                  />
                   <td className={d.balance >= 0 ? "text-right font-medium" : "text-right font-medium text-expense"}>
                     {formatCLP(d.balance)}
                   </td>
@@ -188,6 +158,55 @@ export default function DashboardClient({
         </div>
       )}
     </div>
+  );
+}
+
+function CashBalanceEditor({ cashBalance }: { cashBalance: number }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(cashBalance));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await fetch("/api/org", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cashBalance: Number(value) }),
+    });
+    setSaving(false);
+    setEditing(false);
+    router.refresh();
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-sm text-slate-500">Saldo de caja actual (CLP)</span>
+        <input
+          className="input w-36 py-1"
+          type="number"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoFocus
+        />
+        <button onClick={save} className="btn-primary py-1 px-3 text-sm" disabled={saving}>
+          {saving ? "Guardando..." : "Guardar"}
+        </button>
+        <button onClick={() => setEditing(false)} className="btn-secondary py-1 px-3 text-sm">
+          Cancelar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-sm text-slate-500">
+      Saldo de caja actual: <span className="font-medium text-slate-700">{formatCLP(cashBalance)}</span>{" "}
+      <button onClick={() => setEditing(true)} className="text-xs underline text-brand">
+        Editar
+      </button>
+    </p>
   );
 }
 

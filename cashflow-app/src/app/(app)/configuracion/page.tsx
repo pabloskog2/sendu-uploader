@@ -7,9 +7,6 @@ import ConnectionCard from "@/components/ConnectionCard";
 type Org = {
   name: string;
   rut: string | null;
-  cashBalance: number;
-  cashBalanceDate: string;
-  defaultPaymentTermDays: number;
 };
 
 type Connection = {
@@ -23,13 +20,7 @@ type DuemintConnection = (Connection & { companyId: string | null }) | null;
 
 export default function ConfiguracionPage() {
   const [org, setOrg] = useState<Org | null>(null);
-  const [orgForm, setOrgForm] = useState({
-    name: "",
-    rut: "",
-    cashBalance: "0",
-    cashBalanceDate: "",
-    defaultPaymentTermDays: "30",
-  });
+  const [orgForm, setOrgForm] = useState({ name: "", rut: "" });
   const [savingOrg, setSavingOrg] = useState(false);
 
   const [nuboxConnection, setNuboxConnection] = useState<NuboxConnection>(null);
@@ -43,13 +34,7 @@ export default function ConfiguracionPage() {
       .then((r) => r.json())
       .then((data: Org) => {
         setOrg(data);
-        setOrgForm({
-          name: data.name,
-          rut: data.rut ?? "",
-          cashBalance: String(data.cashBalance),
-          cashBalanceDate: data.cashBalanceDate.slice(0, 10),
-          defaultPaymentTermDays: String(data.defaultPaymentTermDays ?? 30),
-        });
+        setOrgForm({ name: data.name, rut: data.rut ?? "" });
       });
   }
 
@@ -108,44 +93,6 @@ export default function ConfiguracionPage() {
             value={orgForm.rut}
             onChange={(e) => setOrgForm({ ...orgForm, rut: e.target.value })}
           />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="label">Saldo de caja actual (CLP)</label>
-            <input
-              className="input"
-              type="number"
-              value={orgForm.cashBalance}
-              onChange={(e) => setOrgForm({ ...orgForm, cashBalance: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="label">Fecha del saldo</label>
-            <input
-              className="input"
-              type="date"
-              value={orgForm.cashBalanceDate}
-              onChange={(e) => setOrgForm({ ...orgForm, cashBalanceDate: e.target.value })}
-            />
-          </div>
-        </div>
-        <div>
-          <label className="label">Plazo de pago genérico (días)</label>
-          <input
-            className="input max-w-[140px]"
-            type="number"
-            min={0}
-            value={orgForm.defaultPaymentTermDays}
-            onChange={(e) => setOrgForm({ ...orgForm, defaultPaymentTermDays: e.target.value })}
-          />
-          <p className="text-xs text-slate-400 mt-1">
-            Se usa cuando Nubox no trae fecha de vencimiento en un documento (compra o venta) y el RUT de
-            la contraparte no tiene un plazo propio configurado en{" "}
-            <a href="/plazos-de-pago" className="underline text-brand">
-              Plazos de Pago
-            </a>
-            . 0 días = contado.
-          </p>
         </div>
         <button type="submit" className="btn-primary" disabled={savingOrg}>
           {savingOrg ? "Guardando..." : "Guardar"}

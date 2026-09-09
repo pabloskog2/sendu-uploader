@@ -18,7 +18,6 @@ async function main() {
       name: "Sendu Demo SpA",
       rut: "76.000.000-0",
       cashBalance: 4_500_000,
-      cashBalanceDate: new Date(),
       memberships: {
         create: {
           role: "OWNER",

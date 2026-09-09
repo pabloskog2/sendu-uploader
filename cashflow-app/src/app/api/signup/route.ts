@@ -22,7 +22,6 @@ export async function POST(req: Request) {
     data: {
       name: organizationName,
       cashBalance: 0,
-      cashBalanceDate: new Date(),
       memberships: {
         create: {
           role: "OWNER",
